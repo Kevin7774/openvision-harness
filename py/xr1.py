@@ -51,8 +51,10 @@ CLI
     python3 xr1.py snap  --all             # capture every camera
     python3 xr1.py blocks                  # ZED -> table plane -> blocks in base_link
 
-Add --record to ANY motion command to film it with the external camera on the
-Mac and write a per-action experiment record (see xr1_experiment.py):
+Film an action with the external camera on the Mac via the Rust journal, which
+writes the experiment record and drives xr1_cam.py for the clip:
+    xr1-vision begin --purpose "..." ; ... ; xr1-vision end --status SUCCESS
+The old --record flag on motion commands is a dead end -- see _step().
     python3 xr1.py rec setup               # one-time: build/launch the Mac recorder
     python3 xr1.py rec new --label 抓积木   # open a run; later actions join it
     python3 xr1.py wave right --record     # films it, logs it, keeps the clip
@@ -78,7 +80,6 @@ import subprocess
 import sys
 import time
 
-sys.path.insert(0, "/home/astrabot/tools")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ------------------------------------------------------------------ constants
@@ -229,7 +230,7 @@ class XR1:
     def pose(self, fresh=True):
         """fresh=False 只读最近一次收到的 /joint_states，**不 spin**。
 
-        给后台采样线程用（xr1_experiment.Step 的运动采样）：`fresh=True` 会
+        给后台采样线程用（运动采样）：`fresh=True` 会
         `rclpy.spin_once` 同一个 node，和正在做动作的主线程抢 spin —— 轻则采到的
         点乱序，重则主线程的新鲜度检查扑空、动作中途被 MotionRefused 打断。
         为一个"影片里剪掉静止"的功能去冒这个风险不值得。
@@ -538,15 +539,19 @@ class _NoStep:
 def _step(a, action, params=None, robot=None):
     """Wrap one action in an experiment Step when --record was given.
 
-    Deliberately imported lazily: xr1_experiment reaches out over SSH to the Mac,
-    and `xr1.py pose` must not pay for that.
+    --record is currently a dead end: xr1_experiment.py went with the rest of
+    the old Python loop (see docs/decisions/0002-lost-python-loop.md) and is not
+    recoverable. The journal capability itself survived -- it was migrated into
+    the Rust CLI, which drives xr1_cam.py for the video. Rather than raise an
+    ImportError three frames deep in a motion command, say so here.
     """
     if not getattr(a, "record", False):
         return _NoStep()
-    sys.path.insert(0, SCRIPTS)
-    import xr1_experiment
-    return xr1_experiment.Step(action, params, robot=robot,
-                               label=getattr(a, "label", "") or "")
+    raise SystemExit(
+        "--record is not available: xr1_experiment.py no longer exists.\n"
+        "Use the Rust journal instead, which records the same clip:\n"
+        "  xr1-vision begin --purpose TEXT ; xr1-vision note ... ; "
+        "xr1-vision end --status SUCCESS|FAILED")
 
 
 def _add_record_flags(p):
@@ -693,17 +698,18 @@ def cmd_demo(a):
 
 def cmd_rec(a):
     """Front door for the recording pipeline: camera plumbing lives in
-    xr1_cam.py, experiment records and movie assembly in xr1_experiment.py.
-    Dispatched as a subprocess so a broken SSH/ffmpeg path can never take down
-    the control layer."""
+    xr1_cam.py. Dispatched as a subprocess so a broken SSH/ffmpeg path can
+    never take down the control layer. Experiment records and movie assembly
+    are the Rust CLI's job now (xr1-vision begin/note/end)."""
     cam = {"setup": "install", "doctor": "doctor", "status": "status",
            "test": "selftest", "quit": "quit"}
-    if a.recmd in cam:
-        script, argv = "xr1_cam.py", [cam[a.recmd]]
-    else:
-        script, argv = "xr1_experiment.py", [a.recmd]
-    return subprocess.call([sys.executable, os.path.join(SCRIPTS, script)]
-                           + argv + list(a.rest))
+    if a.recmd not in cam:
+        raise SystemExit(
+            f"unknown rec subcommand {a.recmd!r}; the camera side is "
+            f"{'/'.join(sorted(cam))}. Experiment records and movie assembly "
+            "moved to the Rust CLI: xr1-vision begin/note/end.")
+    return subprocess.call([sys.executable, os.path.join(SCRIPTS, "xr1_cam.py"),
+                            cam[a.recmd]] + list(a.rest))
 
 
 def cmd_snap(a):

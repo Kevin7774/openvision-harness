@@ -52,19 +52,6 @@ pub struct GraspMetrics {
 }
 
 impl Chain {
-    pub fn orientation_offsets() -> [[f64; 3]; 15] {
-        [
-            [0.0, 0.0, 0.0],
-            [0.25, 0.0, 0.0], [-0.25, 0.0, 0.0],
-            [0.0, 0.25, 0.0], [0.0, -0.25, 0.0],
-            [0.45, 0.0, 0.0], [-0.45, 0.0, 0.0],
-            [0.0, 0.45, 0.0], [0.0, -0.45, 0.0],
-            [0.0, 0.0, 0.7853981633974483],
-            [0.0, 0.0, -0.7853981633974483],
-            [0.25, 0.25, 0.0], [0.25, -0.25, 0.0],
-            [-0.25, 0.25, 0.0], [-0.25, -0.25, 0.0],
-        ]
-    }
 
     pub fn from_urdf(path: &Path, tip: &str) -> Result<Self, String> {
         let xml = fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -223,15 +210,6 @@ impl Chain {
         }
     }
 
-    pub fn solve_position(&self, target: [f64; 3], current: &[f64]) -> Option<Solution> {
-        let target = Vector3::new(target[0], target[1], target[2]);
-        let current_rotation = self.fk(current).rotation;
-        Self::orientation_offsets().into_iter().filter_map(|offset| {
-            let target_rotation = current_rotation
-                * UnitQuaternion::from_euler_angles(offset[0], offset[1], offset[2]);
-            self.solve_pose(target, target_rotation, current, offset)
-        }).min_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
-    }
 
     pub fn solve_position_with_reference(
         &self,

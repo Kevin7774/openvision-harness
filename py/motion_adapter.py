@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import time
 
-sys.path.insert(0, "/home/astrabot/tools")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import astra_arm
 

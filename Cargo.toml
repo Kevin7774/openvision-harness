@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.75"
+
+# Applies to every crate in the workspace. The binary ships to the robot and is
+# invoked per action from an agent loop, so start-up cost and size matter more
+# than compile time.
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
