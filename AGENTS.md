@@ -44,6 +44,10 @@ See [ADR 0002](docs/decisions/0002-python-at-the-ros-boundary.md).
 
 C++ stays in `ros/rtc_teleop/` because those are ROS 2 nodes built by colcon.
 
+Swift stays in `mac/xr1rec.swift` because it is an AVFoundation recorder that
+runs on the Mac, not on the robot: the camera and its TCC permission prompt are
+macOS APIs. It is driven from here over ssh by `py/xr1_cam.py`.
+
 ## 4. Rust rules
 
 - One capability, one implementation, one place. If you are about to write a

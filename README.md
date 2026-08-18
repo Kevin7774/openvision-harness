@@ -13,6 +13,7 @@ actually commands the arms, and the evidence ledger that says whether it worked.
 crates/xr1-vision/   Rust: perception, kinematics, experiment journal   <- main line
 py/                  Python: the rclpy / hardware boundary              <- see AGENTS.md §language
 ros/rtc_teleop/      C++ ROS 2 nodes (source for the vendor teleop path)
+mac/                 Swift: the external-camera recorder that runs on the Mac
 bin/home             one-line wrapper that exports ROS_DOMAIN_ID before homing
 data/                measured evidence: vista_runs/ (observations), experiments/,
                      snapshots/ --- append-only, every record dated
