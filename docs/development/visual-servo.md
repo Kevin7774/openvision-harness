@@ -1,9 +1,25 @@
 # Visual servo --- specification for the highest-value missing piece
 
-**Status: not implemented.** The Python version worked and was deleted
-([ADR 0003](../decisions/0003-lost-python-pipeline.md)). This is what survives of
-its design, kept because the measurements in it cost sessions to obtain and
-cannot be re-derived from the docs that described the code.
+**Status: proposal and deterministic gate implemented; live loop incomplete.**
+The deleted Python loop remains historical context in
+[ADR 0003](../decisions/0003-lost-python-pipeline.md). Rust now owns the named
+3×3 solve, conditioning check, 0.05 rad hard step ceiling, observation binding,
+freshness, URDF limit/margin, fingertip-floor path and sensor-capability gates.
+No command is published by `servo-propose`.
+
+Run the boundary against a newly captured state:
+
+```bash
+xr1-vision servo-propose \
+  --input examples/servo_request.json \
+  --state data/vista_runs/<run>/observations/<frame>/state.json
+```
+
+The output keeps `execution_authorized=false`. A true
+`ready_for_execution_adapter` means only that the Rust checks passed; the
+hardware boundary must still re-check live `/joint_states` freshness and command
+channel idleness. Self-collision and gripper-body collision are still unmodelled
+and are reported explicitly as limitations.
 
 ## Why this and not more calibration
 
@@ -52,7 +68,8 @@ calibration.
 1. observe
 2. detect pads + block; e = s_target - s_now
 3. dq = 0.5 * J^-1 * e                     # damping 0.5; do not take the whole step
-4. propose to the existing safety gates -- collision + fingertip floor.
+4. propose to the existing deterministic gates -- freshness, step, URDF margin,
+   fingertip floor path and required sensor capability.
    The servo proposes; the gates dispose.
 5. execute, re-observe, print predicted dpx vs actual dpx
 6. converged when |e_px| < threshold and depth is in the grip band -> suggest close

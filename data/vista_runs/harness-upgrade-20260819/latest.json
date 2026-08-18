@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "tool": "observe",
+  "run_id": "harness-upgrade-20260819",
+  "frame_id": "20260819-005653-726107572-570151",
+  "rgb_path": "/home/astrabot/workspace/data/vista_runs/harness-upgrade-20260819/observations/20260819-005653-726107572-570151/rgb.png",
+  "depth_path": "/home/astrabot/workspace/data/vista_runs/harness-upgrade-20260819/observations/20260819-005653-726107572-570151/depth.npy",
+  "camera_info_path": "/home/astrabot/workspace/data/vista_runs/harness-upgrade-20260819/observations/20260819-005653-726107572-570151/camera_info.json",
+  "state_path": "/home/astrabot/workspace/data/vista_runs/harness-upgrade-20260819/observations/20260819-005653-726107572-570151/state.json",
+  "sensor_stamp_ns": 1787072213399879391,
+  "received_at_ns": 1787072213726107572,
+  "rgb_depth_delta_ms": 0.0,
+  "clock_offset_ms": 326.228181,
+  "tf_ok": true,
+  "depth_valid_ratio": 0.739414
+}

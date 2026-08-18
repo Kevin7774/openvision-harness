@@ -22,9 +22,11 @@ Agent      you / an LLM          pick the next experiment, write the prediction
   |
 Planner    xr1-vision plan       image -> object pose -> grasp candidates -> IK
   |
+Guard      xr1-vision safety     freshness, step, URDF path, required sensors
+  |
 Executor   py/xr1.py             one named motion, one return code
   |
-Safety     py/astra_arm.py       rate limit, URDF clamp, staleness, channel idle
+Safety     py/astra_arm.py       live staleness, rate, clamp, channel idle
   |
 Device     /opt/ros/astrabot     ros2_control + vendor binaries
 ```
@@ -35,12 +37,16 @@ above it for permission.
 
 ## The Rust side: `crates/xr1-vision`
 
-One binary, three files, no framework.
+One binary with small modules split by ownership, no framework.
 
 | Module | Responsibility |
 |---|---|
 | `perception.rs` | read one observation, find the block, produce ranked grasp candidates as JSON |
 | `kinematics.rs` | parse the live URDF chain, forward kinematics to the gripper pads, position IK, grasp-geometry feasibility |
+| `visual_servo.rs` | turn a named 3×3 image-Jacobian measurement into a bounded joint-space proposal |
+| `safety.rs` | bind a proposal to fresh evidence and apply deterministic step, URDF margin, floor-path and sensor-capability gates |
+| `observation.rs` | shared typed observation/joint/TF contract used by perception and safety |
+| `hardware.rs` | read-only D405 and tactile capability discovery; no task policy |
 | `main.rs` | argument parsing, shelling out to the two Python entry points, and the experiment journal |
 
 Commands:
@@ -50,6 +56,9 @@ xr1-vision preflight                       py/xr1.py pose + py/xr1_cam.py doctor
 xr1-vision observe                         py/vista_observe.py -> data/vista_runs/<run>/latest.json
 xr1-vision plan                            perception::plan on the newest observation
 xr1-vision fk J1 .. JN                     pad-inner points, midpoint and tool rotation
+xr1-vision sensor-status                   read-only D405 / tactile capability state
+xr1-vision servo-propose --input I --state S
+                                              bounded proposal + deterministic Rust gate
 xr1-vision begin --purpose TEXT            open a numbered experiment
 xr1-vision note --section NAME --text TEXT  append to its report
 xr1-vision grip --side S --state open|close
@@ -61,6 +70,9 @@ xr1-vision status
 hardware and `plan` is pure computation over files, so a plan can be re-run and
 argued with long after the frame was taken. `plan` moves nothing --- its output
 is labelled `online_plan_dry_run` and executing it is a separate, human decision.
+`servo-propose` is also non-executing: `ready_for_execution_adapter` only means
+the Rust checks passed. `execution_authorized` remains false until the hardware
+adapter re-checks live joint freshness and command-channel idleness.
 
 ## The Python side: `py/`
 
@@ -90,10 +102,13 @@ this tree is how the teleop path is understood and modified, not what is live.
 
 ## Data
 
-`data/` is the evidence ledger and is gitignored (180 MB and growing):
+`data/` is the append-only evidence ledger and is tracked deliberately. Raw
+frames are kept because a hardware claim without its named source frame cannot
+be reproduced or audited.
 
 | Path | Contents |
 |---|---|
 | `vista_runs/<run>/` | observations: `rgb.png`, `depth.npy`, `camera_info.json`, `state.json`, `latest.json` |
 | `experiments/<id>/` | one experiment: `REPORT.md` plus frames |
 | `snapshots/` | raw captures |
+| `benchmarks/` | dated, non-motion timing and resource measurements |

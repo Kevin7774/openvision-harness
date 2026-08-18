@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "observation_frame_id": "20260819-000452-804674580-494898",
+  "controlled_joints": [
+    "right_arm_2_joint",
+    "right_arm_4_joint",
+    "right_arm_6_joint"
+  ],
+  "jacobian": [
+    [100.0, 20.0, 0.0],
+    [0.0, 80.0, 10.0],
+    [0.0, 0.0, 0.5]
+  ],
+  "error": [20.0, -10.0, 0.04],
+  "damping": 0.5,
+  "requires": {
+    "d405": false,
+    "tactile": false
+  }
+}

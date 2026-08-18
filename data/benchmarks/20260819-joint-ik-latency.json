@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-08-19T01:05:25+08:00",
+  "host": "tegra-ubuntu",
+  "motion_executed": false,
+  "command": "target/release/xr1-vision plan",
+  "binary_profile": "release",
+  "observation_frame_id": "20260818-170043-862454095-529385",
+  "object_center_m": [0.5009487342496266, -0.15188425627198043, 0.8118829863320384],
+  "search": {
+    "orientation_candidates_per_height": 48,
+    "clearance_m": [0.06, 0.08, 0.1],
+    "joint_pair_search": true
+  },
+  "timing_runs": [
+    {
+      "stage": "before_shared_motion_envelope",
+      "wall_s": 12.478,
+      "user_s": 11.99,
+      "sys_s": 0.075,
+      "load_average_1m": 16.13,
+      "load_average_5m": 38.08,
+      "load_average_15m": 30.27
+    },
+    {
+      "stage": "after_shared_motion_envelope",
+      "wall_s": 12.874,
+      "user_s": 12.06,
+      "sys_s": 0.059,
+      "wall_delta_percent": 3.17
+    }
+  ],
+  "results": [
+    {
+      "clearance_m": 0.06,
+      "ik_feasible": true,
+      "grasp_feasible": true,
+      "approach_ik_count": 75,
+      "grasp_ik_count": 1002,
+      "geometry_feasible_count": 959
+    },
+    {
+      "clearance_m": 0.08,
+      "ik_feasible": true,
+      "grasp_feasible": true,
+      "approach_ik_count": 76,
+      "grasp_ik_count": 1062,
+      "geometry_feasible_count": 1005
+    },
+    {
+      "clearance_m": 0.1,
+      "ik_feasible": true,
+      "grasp_feasible": true,
+      "approach_ik_count": 76,
+      "grasp_ik_count": 1068,
+      "geometry_feasible_count": 968
+    }
+  ]
+}

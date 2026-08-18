@@ -3,13 +3,19 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+mod hardware;
 mod kinematics;
+mod observation;
 mod perception;
+mod safety;
+mod visual_servo;
 
 const ROOT: &str = "/home/astrabot/workspace/data";
 const SCRIPTS: &str = "/home/astrabot/workspace/py";
 const RUN_ID: &str = "yellow-block-harness";
+const ARM_URDF: &str = "/opt/ros/astrabot/share/astrabot_xr1_evt2_description/urdf/astrabot_xr1_evt2_arm_description.urdf";
 
 fn main() -> ExitCode {
     match run() {
@@ -33,6 +39,8 @@ fn run() -> Result<(), String> {
         Some("grip") => grip(args.collect()),
         Some("end") => end(args.collect()),
         Some("status") => status(),
+        Some("sensor-status") => hardware::print_status(),
+        Some("servo-propose") => servo_propose(args.collect()),
         _ => {
             print_help();
             Ok(())
@@ -51,6 +59,67 @@ fn print_help() {
     println!("  grip --side right|left --state open|close");
     println!("  end --status SUCCESS|FAILED");
     println!("  status");
+    println!("  sensor-status             # read-only physical sensor capability report");
+    println!("  servo-propose --input FILE --state FILE # proposal + deterministic Rust gate; never executes");
+}
+
+fn servo_propose(args: Vec<String>) -> Result<(), String> {
+    let input_path = option(&args, "--input")?;
+    let state_path = option(&args, "--state")?;
+    let input: visual_servo::ServoInput =
+        serde_json::from_slice(&fs::read(&input_path).map_err(|e| format!("{input_path}: {e}"))?)
+            .map_err(|e| format!("invalid servo input: {e}"))?;
+    let state = observation::read_state(Path::new(&state_path))?;
+    let tip = servo_tip(&input.controlled_joints)?;
+    let chain = kinematics::Chain::from_urdf(Path::new(ARM_URDF), tip)?;
+    let sensors = hardware::inspect()?;
+    let proposal = visual_servo::propose(&input, safety::MAX_SERVO_STEP_RAD)?;
+    let generated_at_ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
+        .as_nanos()
+        .try_into()
+        .map_err(|_| "system timestamp does not fit u64".to_string())?;
+    let safety_report = safety::evaluate_servo(
+        &chain,
+        &state,
+        &input.observation_frame_id,
+        &proposal,
+        &input.requires,
+        &sensors,
+        generated_at_ns,
+    )?;
+    let ready_for_execution_adapter = safety_report.approved;
+    println!(
+        "{}",
+        serde_json::to_string(&serde_json::json!({
+            "ok": true,
+            "schema_version": 1,
+            "mode": "visual_servo_proposal",
+            "generated_at_ns": generated_at_ns,
+            "observation_frame_id": input.observation_frame_id,
+            "proposal": proposal,
+            "safety": safety_report,
+            "ready_for_execution_adapter": ready_for_execution_adapter,
+            "execution_authorized": false
+        }))
+        .map_err(|e| e.to_string())?
+    );
+    Ok(())
+}
+
+fn servo_tip(controlled_joints: &[String]) -> Result<&'static str, String> {
+    let right = controlled_joints
+        .iter()
+        .all(|name| name.starts_with("right_arm_") && name.ends_with("_joint"));
+    let left = controlled_joints
+        .iter()
+        .all(|name| name.starts_with("left_arm_") && name.ends_with("_joint"));
+    match (right, left) {
+        (true, false) => Ok("right_tcp_link"),
+        (false, true) => Ok("left_tcp_link"),
+        _ => Err("controlled_joints must all belong to exactly one arm".into()),
+    }
 }
 
 fn command(name: &str, args: &[&str]) -> Result<(), String> {

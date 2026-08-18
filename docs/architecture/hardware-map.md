@@ -223,14 +223,25 @@ Bus 001 root_hub (tegra-xusb/4p, 480M)
 │       ├── 1-3.4.2  0d8c:0014  C-Media Audio (Unitek Y-247A) snd-usb-audio + usbhid
 │       └── 1-3.4.3  1a86:7523  QinHeng CH340                 Driver=[none]  ⚠ 见 §11
 └── 1-4      Genesys  05e3:0610  4-port hub
-    └── 1-4.3   1bcf:2cd1  Sunplus DECXIN CAMERA             uvcvideo  ← 唯一一台腕部单目
-        （1-4.4 现在是空的。⚠️ 不要在文档里写 video 编号，每次插拔都变，见 §7）
+    └── downstream Realtek hub
+        ├── 8086:0b5b  Intel RealSense D405                  uvcvideo  ← 右手近场深度，当前仅 480M
+        └── 1a86:7523  QinHeng CH340                         Driver=[none]  ← 触觉候选，协议/映射待验
 
 Bus 002 root_hub (tegra-xusb/4p, 20000M/x2)
 ├── 2-1      2b03:f880  STEREOLABS ZED 2i                    uvcvideo → video0/1  (5000M)
 ├── 2-2      05e3:0620  Genesys GL3523 hub                   （空）
 └── 2-3      05e3:0620  Genesys GL3523 hub                   （空）
 ```
+
+2026-08-18 真机复核：`rs-enumerate-devices -s` 识别 D405 序列号
+`262422270599`，所以“D405 不存在”是错误结论。它当前位于 480M USB 2.0
+链路，ROS 驱动打开 `848x480@10` 后出现过 protocol error、断开和重新枚举；能力状态应为
+`DEGRADED`，不是 `UNAVAILABLE`，在移到 Bus 002 的 5000M hub 并完成持续流测试前不得用于
+近场闭环动作。
+
+同次复核看到两颗 `1a86:7523` CH340。它们可能是操作者说明的触觉垫片聚合器，但当前
+内核没有 `ch341` 驱动，因此没有 tty 节点，115200 协议也无法取帧。`/dev/ttyUSB0`
+仍是右 G2 夹爪的 CP2102N/2 Mbaud 端口，绝不能按触觉 115200 打开。
 
 **关键：两个腕部相机型号完全相同（`1bcf:2cd1`，名字都是 `DECXIN  CAMERA`，
 连 `ID_SERIAL` 也一样 —— `DECXIN_CAMERA_DECXIN_CAMERA_01.00.00`，固件写死的常量）**，

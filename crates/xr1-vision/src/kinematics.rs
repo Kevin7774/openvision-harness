@@ -11,6 +11,8 @@ const TIP_CENTER_M: [f64; 3] = [-0.0225, 0.0, 0.0485];
 const FIXED_PAD_INNER_M: [f64; 3] = [0.0015, 0.0, 0.0485];
 const MOVING_PAD_INNER_OPEN_M: [f64; 3] = [-0.0450, 0.0, 0.0485];
 const OPEN_JAW_GAP_M: f64 = 0.0465;
+pub const PLANNING_MIN_TIP_Z_M: f64 = 0.785;
+pub const PLANNING_MIN_LIMIT_MARGIN_RAD: f64 = 0.05;
 
 #[derive(Clone)]
 struct Joint {
@@ -53,10 +55,22 @@ pub struct GraspMetrics {
     pub feasible: bool,
 }
 
+#[derive(Debug)]
+pub struct MotionEnvelope {
+    pub max_joint_delta_rad: f64,
+    pub min_joint_limit_margin_rad: f64,
+    pub min_tip_z_m: f64,
+    pub joint_limits_ok: bool,
+}
+
 impl Chain {
     pub fn from_urdf(path: &Path, tip: &str) -> Result<Self, String> {
         let xml = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let doc = Document::parse(&xml).map_err(|e| e.to_string())?;
+        Self::from_urdf_xml(&xml, tip)
+    }
+
+    pub(crate) fn from_urdf_xml(xml: &str, tip: &str) -> Result<Self, String> {
+        let doc = Document::parse(xml).map_err(|e| e.to_string())?;
         let mut by_child = HashMap::new();
         for node in doc.descendants().filter(|n| n.has_tag_name("joint")) {
             let name = node.attribute("name").unwrap_or("").to_string();
@@ -266,20 +280,81 @@ impl Chain {
         }
     }
 
-    pub fn solve_position_with_reference(
+    pub fn motion_envelope(
+        &self,
+        start: &[f64],
+        target: &[f64],
+        samples: usize,
+    ) -> Result<MotionEnvelope, String> {
+        let expected = self.active.len();
+        if start.len() != expected || target.len() != expected {
+            return Err(format!(
+                "motion envelope expected {expected} joints, got start={} target={}",
+                start.len(),
+                target.len()
+            ));
+        }
+        if samples == 0 {
+            return Err("motion envelope requires at least one path sample".into());
+        }
+        if !start.iter().chain(target).all(|value| value.is_finite()) {
+            return Err("motion envelope contains non-finite joint values".into());
+        }
+
+        let max_joint_delta_rad = start
+            .iter()
+            .zip(target)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        let mut min_joint_limit_margin_rad = f64::INFINITY;
+        let mut joint_limits_ok = true;
+        for ((start_value, target_value), &index) in start.iter().zip(target).zip(&self.active) {
+            let joint = &self.joints[index];
+            joint_limits_ok &= *start_value >= joint.lower
+                && *start_value <= joint.upper
+                && *target_value >= joint.lower
+                && *target_value <= joint.upper;
+            min_joint_limit_margin_rad = min_joint_limit_margin_rad
+                .min(*target_value - joint.lower)
+                .min(joint.upper - *target_value);
+        }
+        let min_tip_z_m = (0..=samples)
+            .map(|step| {
+                let t = step as f64 / samples as f64;
+                let sample = start
+                    .iter()
+                    .zip(target)
+                    .map(|(a, b)| a + t * (b - a))
+                    .collect::<Vec<_>>();
+                self.contact_pose(&sample).translation.vector.z
+            })
+            .fold(f64::INFINITY, f64::min);
+
+        Ok(MotionEnvelope {
+            max_joint_delta_rad,
+            min_joint_limit_margin_rad,
+            min_tip_z_m,
+            joint_limits_ok,
+        })
+    }
+
+    /// Return every safe IK branch found by the multi-seed search, ordered by
+    /// score. Pair planning must use this instead of committing to the single
+    /// best pregrasp branch before checking whether its descent branch exists.
+    pub fn solve_position_candidates_with_reference(
         &self,
         target: [f64; 3],
         seed: &[f64],
         reference: &[f64],
         orientation_offset: [f64; 3],
-    ) -> Option<Solution> {
+    ) -> Vec<Solution> {
         let target_rotation = self.fk(reference).rotation
             * UnitQuaternion::from_euler_angles(
                 orientation_offset[0],
                 orientation_offset[1],
                 orientation_offset[2],
             );
-        self.solve_pose(
+        self.solve_pose_candidates(
             Vector3::new(target[0], target[1], target[2]),
             target_rotation,
             seed,
@@ -287,13 +362,13 @@ impl Chain {
         )
     }
 
-    fn solve_pose(
+    fn solve_pose_candidates(
         &self,
         target: Vector3<f64>,
         target_rotation: UnitQuaternion<f64>,
         current: &[f64],
         orientation_offset: [f64; 3],
-    ) -> Option<Solution> {
+    ) -> Vec<Solution> {
         let midpoint: Vec<f64> = self
             .active
             .iter()
@@ -316,7 +391,8 @@ impl Chain {
                 seeds.push(seed);
             }
         }
-        let mut best: Option<Solution> = None;
+        let mut accepted = Vec::new();
+        let mut best_rejected: Option<Solution> = None;
         for mut q in seeds {
             self.clamp(&mut q);
             for _ in 0..160 {
@@ -371,28 +447,12 @@ impl Chain {
             let orientation_residual = (target_rotation * final_tcp.rotation.inverse())
                 .scaled_axis()
                 .norm();
-            let max_delta = q
-                .iter()
-                .zip(current)
-                .map(|(a, b)| (a - b).abs())
-                .fold(0.0, f64::max);
-            let min_limit_margin = q
-                .iter()
-                .zip(&self.active)
-                .map(|(value, &index)| {
-                    let joint = &self.joints[index];
-                    (value - joint.lower).min(joint.upper - value)
-                })
-                .fold(f64::INFINITY, f64::min);
-            let floor_clear = (0..=20).all(|step| {
-                let t = step as f64 / 20.0;
-                let sample: Vec<f64> = current
-                    .iter()
-                    .zip(&q)
-                    .map(|(a, b)| a + t * (b - a))
-                    .collect();
-                self.contact_pose(&sample).translation.vector.z > 0.785
-            });
+            let Ok(envelope) = self.motion_envelope(current, &q, 20) else {
+                continue;
+            };
+            let max_delta = envelope.max_joint_delta_rad;
+            let min_limit_margin = envelope.min_joint_limit_margin_rad;
+            let floor_clear = envelope.min_tip_z_m > PLANNING_MIN_TIP_Z_M;
             let limit_penalty = if min_limit_margin < 0.12 {
                 (0.12 - min_limit_margin) * 50.0
             } else {
@@ -413,35 +473,33 @@ impl Chain {
                 orientation_offset_rpy_rad: orientation_offset,
                 min_limit_margin_rad: min_limit_margin,
             };
-            if best
+            if solution.residual_m <= 0.015
+                && solution.orientation_residual_rad <= 0.10
+                && solution.floor_clear
+                && solution.min_limit_margin_rad >= PLANNING_MIN_LIMIT_MARGIN_RAD
+            {
+                accepted.push(solution);
+            } else if best_rejected
                 .as_ref()
-                .map(|b| solution.score < b.score)
+                .map(|candidate| solution.score < candidate.score)
                 .unwrap_or(true)
             {
-                best = Some(solution);
+                best_rejected = Some(solution);
             }
         }
-        if let Some(solution) = &best {
-            if solution.residual_m > 0.015
-                || solution.orientation_residual_rad > 0.10
-                || !solution.floor_clear
-                || solution.min_limit_margin_rad < 0.05
-            {
+        accepted.sort_by(|a, b| a.score.total_cmp(&b.score));
+        if accepted.is_empty() {
+            if let Some(solution) = &best_rejected {
                 eprintln!(
                     "IK_REJECT target={:.4},{:.4},{:.4} offset={:.3},{:.3},{:.3} residual_m={:.5} orientation_rad={:.5} floor_clear={} limit_margin_rad={:.5}",
-                    target[0], target[1], target[2],
-                    orientation_offset[0], orientation_offset[1], orientation_offset[2],
-                    solution.residual_m, solution.orientation_residual_rad,
-                    solution.floor_clear, solution.min_limit_margin_rad
+                    target[0], target[1], target[2], orientation_offset[0],
+                    orientation_offset[1], orientation_offset[2], solution.residual_m,
+                    solution.orientation_residual_rad, solution.floor_clear,
+                    solution.min_limit_margin_rad
                 );
             }
         }
-        best.filter(|s| {
-            s.residual_m <= 0.015
-                && s.orientation_residual_rad <= 0.10
-                && s.floor_clear
-                && s.min_limit_margin_rad >= 0.05
-        })
+        accepted
     }
 }
 
@@ -494,4 +552,53 @@ fn parse_vec(value: &str) -> Result<[f64; 3], String> {
         return Err(format!("expected 3-vector: {value}"));
     }
     Ok([values[0], values[1], values[2]])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ONE_JOINT_URDF: &str = r#"
+        <robot name="test">
+          <link name="base_link"/>
+          <link name="right_tcp_link"/>
+          <joint name="right_arm_1_joint" type="revolute">
+            <parent link="base_link"/>
+            <child link="right_tcp_link"/>
+            <origin xyz="0 0 1" rpy="0 0 0"/>
+            <axis xyz="0 0 1"/>
+            <limit lower="-1" upper="1"/>
+          </joint>
+        </robot>
+    "#;
+
+    #[test]
+    fn motion_envelope_reports_delta_margin_and_floor() {
+        let chain = Chain::from_urdf_xml(ONE_JOINT_URDF, "right_tcp_link");
+        assert!(chain.is_ok());
+        let Some(chain) = chain.ok() else { return };
+        let envelope = chain.motion_envelope(&[0.0], &[0.2], 20);
+        assert!(envelope.is_ok());
+        let Some(envelope) = envelope.ok() else {
+            return;
+        };
+        assert!((envelope.max_joint_delta_rad - 0.2).abs() < 1e-12);
+        assert!((envelope.min_joint_limit_margin_rad - 0.8).abs() < 1e-12);
+        assert!(envelope.min_tip_z_m > 1.0);
+        assert!(envelope.joint_limits_ok);
+    }
+
+    #[test]
+    fn motion_envelope_marks_out_of_limit_target() {
+        let chain = Chain::from_urdf_xml(ONE_JOINT_URDF, "right_tcp_link");
+        assert!(chain.is_ok());
+        let Some(chain) = chain.ok() else { return };
+        let envelope = chain.motion_envelope(&[0.0], &[1.2], 20);
+        assert!(envelope.is_ok());
+        let Some(envelope) = envelope.ok() else {
+            return;
+        };
+        assert!(!envelope.joint_limits_ok);
+        assert!(envelope.min_joint_limit_margin_rad < 0.0);
+    }
 }

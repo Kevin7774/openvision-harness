@@ -55,7 +55,8 @@ table *position* does.
 | Grippers | UFactory G2 over Modbus RTU: right on `/dev/ttyUSB0`, left on `/dev/ttyAMA5`, 2 Mbaud slave 8, driver `g2_gripper_pc`. 0 = open, 1 = close, 840 mm travel | 08-10 |
 | Head | pitch must be at the **+40° limit** (reads 39) or the ZED and the arm's reach do not overlap. yaw **pinned to 0** --- 40° of yaw is a half-metre localisation error | 08-11 |
 | ZED 2i | owned by `Astrabot_ZED.service`. Never open `pyzed` directly. Healthy = **6** `zed_*` TF frames; RGB Hz alone will lie to you | 08-11 |
-| Right wrist | RealSense D455. **0 TF frames**, so its geometric contribution is zero, and no depth below 250 mm | 08-13 |
+| Right-hand near field | RealSense D405 serial `262422270599`, currently on a 480 Mbit/s USB path. Enumerates but has disconnected under streaming load, so capability is `DEGRADED` and cannot authorize near-field motion | 08-18 |
+| Tactile candidates | Two CH340 `1a86:7523` devices are present, but the kernel exposes no tty and the 115200 frame/side mapping is unverified. Capability is `UNAVAILABLE` | 08-18 |
 | Wrist cameras | two DECXIN monocular units, distinguished **only** by hub port 4.3 / 4.4. Swapping the cables silently swaps left and right | 08-11 |
 | Recorder | Mac at 192.168.123.138, `py/xr1_cam.py`. **Exclusive** --- `stop` from another session silently voids the running experiment | 08-11 |
 
@@ -67,6 +68,10 @@ table *position* does.
 - **Rate-limited motion**: `py/astra_arm.py` ramps from the measured pose, caps
   velocity, clamps to the live URDF, and refuses on stale feedback or a busy
   command channel.
+- **Visual-servo proposal gate**: Rust solves the named 3×3 image Jacobian,
+  caps each step at 0.05 rad, binds it to one observation frame, and reuses the
+  URDF limit/margin and 21-sample fingertip-floor envelope. Required D405 or
+  tactile capability fails closed when hardware health is not `HEALTHY`.
 - **One successful grasp**, 2026-08-18. Criterion was a *static* reading plus a
   lift: 149 closed on the object vs 14 closed on air, still 148 after lifting.
   "The gripper closed" is not a criterion.
@@ -83,9 +88,9 @@ table *position* does.
    magnitude. A constant cannot produce that, so no single number fixes it ---
    it needs a multi-pose hand-eye solve. Every gate compares FK to FK and
    therefore cannot see any of it.
-3. **The last 25 cm is open loop.** No wrist depth below 250 mm, and the pixel
-   servo that used to close this loop no longer exists
-   ([ADR 0003](../decisions/0003-lost-python-pipeline.md)).
+3. **The live visual-servo loop is incomplete.** The Rust proposal and safety
+   gate exist, but pad/block signal extraction, online Jacobian measurement,
+   execution and post-step prediction reconciliation are not connected yet.
 4. **Reach boundary.** At tol=70, z=0.8001, y=-0.157: x = 0.592 and 0.560 have no
    solution; 0.530, 0.500 and 0.470 solve at 0.00 mm residual. The wall is at
    x ≈ 0.54, so pushing the block ~10 cm to x ≈ 0.49 is the cleanest fix
@@ -111,10 +116,9 @@ mistaken for coverage.
 | Gap | Consequence |
 |---|---|
 | Gripper body has no collision model; only the fingertip pose is floor-checked | a plan clearing the table by a few mm is unverified, not safe ([kinematics](../architecture/kinematics.md)) |
-| `solve` picks a pregrasp branch, then constrains the descent to it | reachable pairs get reported as "no solution"; search compatible `(q_pre, q_grasp)` instead |
 | The tool-frame error is open and partly rotational | grasping is orientation-dependent; the 08-18 success is not repeatable at another block yaw ([ADR 0004](../decisions/0004-tool-frame-error-is-still-open.md)) |
-| Visual servo exists as a spec, not code | the closed loop that reached 9 px was lost with the Python ([ADR 0003](../decisions/0003-lost-python-pipeline.md)); [spec](../development/visual-servo.md) |
-| D455 publishes 0 TF frames and no depth under 250 mm | the last 25 cm of every descent is open-loop |
+| Visual servo has no live measurement/execution loop | the Rust proposal is safe to inspect but cannot yet close the physical loop; [implementation status](../development/visual-servo.md) |
+| D405 is on a degraded USB 2.0 path and tactile has no verified tty/protocol | near-field and contact-dependent proposals fail closed |
 | No `cargo deny` / `nextest`; `cargo audit` cannot run on rustc 1.75 | licence drift is unchecked; advisories are covered instead by `bin/audit-deps` (0 of 41 crates vulnerable) ([building](../development/building.md)) |
 
 ## Recovery

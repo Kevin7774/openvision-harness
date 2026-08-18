@@ -52,7 +52,9 @@ See [ADR 0004](../decisions/0004-tool-frame-error-is-still-open.md).
 
 ## Position IK
 
-`solve_position_with_reference(target, seed, reference, orientation_offset)`.
+`solve_position_candidates_with_reference(target, seed, reference, orientation_offset)`
+returns every accepted branch ordered by score, so the planner can evaluate
+compatible approach/grasp pairs instead of committing to one pregrasp branch.
 
 The target *rotation* is expressed as an offset from a reference pose rather than
 as an absolute orientation. That is deliberate: the useful question is never

@@ -9,6 +9,8 @@ use std::fs;
 
 use std::path::{Path, PathBuf};
 
+use crate::observation::{read_state, ObservationState as State, Transform};
+
 #[derive(Deserialize)]
 struct Latest {
     rgb_path: PathBuf,
@@ -22,27 +24,6 @@ struct CameraInfo {
     width: usize,
     height: usize,
     k: Vec<f64>,
-}
-
-#[derive(Deserialize)]
-struct State {
-    frame_id: String,
-    sensor_stamp_ns: u64,
-    tf: Transform,
-    joint_state: JointState,
-}
-
-#[derive(Deserialize)]
-struct JointState {
-    positions_rad: HashMap<String, Option<f64>>,
-}
-
-#[derive(Deserialize)]
-struct Transform {
-    target_frame: String,
-    source_frame: String,
-    translation_m: Vec<f64>,
-    rotation_xyzw: Vec<f64>,
 }
 
 const URDF: &str = "/opt/ros/astrabot/share/astrabot_xr1_evt2_description/urdf/astrabot_xr1_evt2_arm_description.urdf";
@@ -98,7 +79,7 @@ pub fn fk(joints: &[f64]) -> Result<(), String> {
 pub fn plan(latest_path: &Path) -> Result<(), String> {
     let latest: Latest = read_json(latest_path)?;
     let camera: CameraInfo = read_json(&latest.camera_info_path)?;
-    let state: State = read_json(&latest.state_path)?;
+    let state: State = read_state(&latest.state_path)?;
     if camera.k.len() != 9 || camera.width == 0 || camera.height == 0 {
         return Err("invalid camera intrinsics".into());
     }
@@ -212,13 +193,12 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
             let mut approach_ik_count = 0usize;
             let mut grasp_ik_count = 0usize;
             let mut geometry_feasible_count = 0usize;
-            let pair = orientation_offsets
-                .iter()
-                .copied()
-                .filter_map(|offset| {
-                    let approach_solution = chain
-                        .solve_position_with_reference(approach, &current, &current, offset)?;
-                    approach_ik_count += 1;
+            let mut pair = None;
+            for offset in orientation_offsets.iter().copied() {
+                let approach_solutions = chain
+                    .solve_position_candidates_with_reference(approach, &current, &current, offset);
+                approach_ik_count += approach_solutions.len();
+                for approach_solution in approach_solutions {
                     let seed = names
                         .iter()
                         .map(|name| {
@@ -228,20 +208,34 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
                                 .find(|(joint, _)| joint == name)
                                 .map(|(_, value)| *value)
                         })
-                        .collect::<Option<Vec<_>>>()?;
-                    let grasp_solution =
-                        chain.solve_position_with_reference(center, &seed, &current, offset)?;
-                    grasp_ik_count += 1;
-                    let metrics =
-                        chain.grasp_metrics(&grasp_solution, center, object_axes, object_extents);
-                    if !metrics.feasible {
-                        return None;
+                        .collect::<Option<Vec<_>>>();
+                    let Some(seed) = seed else { continue };
+                    let grasp_solutions = chain
+                        .solve_position_candidates_with_reference(center, &seed, &current, offset);
+                    grasp_ik_count += grasp_solutions.len();
+                    for grasp_solution in grasp_solutions {
+                        let metrics = chain.grasp_metrics(
+                            &grasp_solution,
+                            center,
+                            object_axes,
+                            object_extents,
+                        );
+                        if !metrics.feasible {
+                            continue;
+                        }
+                        geometry_feasible_count += 1;
+                        let total = approach_solution.score + grasp_solution.score;
+                        if pair
+                            .as_ref()
+                            .map(|(score, _, _)| total < *score)
+                            .unwrap_or(true)
+                        {
+                            pair = Some((total, approach_solution, grasp_solution));
+                            break;
+                        }
                     }
-                    geometry_feasible_count += 1;
-                    let total = approach_solution.score + grasp_solution.score;
-                    Some((total, approach_solution, grasp_solution))
-                })
-                .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+                }
+            }
             let (approach_ik, grasp_ik) = match pair {
                 Some((_, approach_solution, grasp_solution)) => {
                     (Some(approach_solution), Some(grasp_solution))

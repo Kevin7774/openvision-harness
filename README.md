@@ -39,6 +39,8 @@ export PATH="$PWD/target/release:$PATH"   # the commands below are that binary
 xr1-vision observe                # ZED snapshot + intrinsics + image-time TF
 xr1-vision plan                   # yellow block -> footprint -> grasp IK
 xr1-vision fk J1 .. J7            # fingertip-pad FK, for hand-eye work
+xr1-vision sensor-status          # D405 / tactile capability report
+xr1-vision servo-propose --input examples/servo_request.json --state STATE_JSON
 ```
 
 Read [`docs/operations/status.md`](docs/operations/status.md) before moving the
@@ -51,6 +53,7 @@ believing any single reading. Several sessions share this one machine.
 |---|---|
 | ZED depth is trustworthy enough to localise the block | independently validated against the teleoperated grasp pose to 2.0 mm |
 | The colour mask separates the block from the green cube *and* from the orange gripper pads | 3 tests in `crates/xr1-vision/src/perception.rs`, thresholds measured off named frames |
+| A named visual-servo proposal cannot bypass the Rust step, freshness, URDF-margin, fingertip-floor or required-sensor gates | unit tests in `visual_servo.rs`, `kinematics.rs` and `safety.rs` |
 | One grasp succeeded | 2026-08-18, gripper reads 149 closed on the object vs 14 closed on air, and it stayed at 148 after lifting |
 | Motion is rate-limited and clamped to the live URDF | `py/astra_arm.py`, refuses on stale `/joint_states` or a busy command channel |
 
@@ -61,11 +64,12 @@ believing any single reading. Several sessions share this one machine.
   different yaw still fails.
 - **No force sensing.** `effort` is `.nan` on every joint, so contact can only
   ever be inferred geometrically.
-- **The last 25 cm is open loop.** The right-wrist D455 has no TF frames and no
-  depth below 250 mm.
-- **The pixel servo is gone.** It was the only verified closed loop and its
-  implementation was deleted before this workspace had version control ---
-  [ADR 0003](docs/decisions/0003-lost-python-pipeline.md).
+- **Near-field sensing is not execution-ready.** The D405 is present but on a
+  degraded 480 Mbit/s path; the two tactile CH340 devices have no tty driver or
+  verified frame contract.
+- **The Rust visual-servo proposal and deterministic gate exist, but the live
+  measure/execute/verify loop does not.** The old Python loop remains historical
+  evidence in [ADR 0003](docs/decisions/0003-lost-python-pipeline.md).
 
 ## Docs
 
@@ -82,7 +86,7 @@ believing any single reading. Several sessions share this one machine.
 | [`docs/development/building.md`](docs/development/building.md) | toolchain, the four gates, what the tests guard |
 | [`docs/decisions/`](docs/decisions/) | why the architecture is this shape, including what was deleted |
 
-Plus [`docs/development/visual-servo.md`](docs/development/visual-servo.md) ---
-a spec, not a description: the one capability this workspace is missing.
+See [`docs/development/visual-servo.md`](docs/development/visual-servo.md) for
+the implemented proposal boundary and the remaining live-loop work.
 
 `bin/check-doc-links` fails if any of those links rot.

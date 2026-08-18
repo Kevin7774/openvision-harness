@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "tool": "observe",
+  "run_id": "servo_ik_audit",
+  "frame_id": "20260819-000452-804674580-494898",
+  "rgb_path": "/home/astrabot/workspace/data/vista_runs/servo_ik_audit/observations/20260819-000452-804674580-494898/rgb.png",
+  "depth_path": "/home/astrabot/workspace/data/vista_runs/servo_ik_audit/observations/20260819-000452-804674580-494898/depth.npy",
+  "camera_info_path": "/home/astrabot/workspace/data/vista_runs/servo_ik_audit/observations/20260819-000452-804674580-494898/camera_info.json",
+  "state_path": "/home/astrabot/workspace/data/vista_runs/servo_ik_audit/observations/20260819-000452-804674580-494898/state.json",
+  "sensor_stamp_ns": 1787069092685863391,
+  "received_at_ns": 1787069092804674580,
+  "rgb_depth_delta_ms": 0.0,
+  "clock_offset_ms": 118.811189,
+  "tf_ok": true,
+  "depth_valid_ratio": 0.765903
+}
