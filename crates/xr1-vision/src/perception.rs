@@ -1,7 +1,7 @@
 use image::io::Reader as ImageReader;
+use nalgebra::{Matrix2, Vector2, Vector3};
 use serde::Deserialize;
 use serde_json::json;
-use nalgebra::{Matrix2, Vector2, Vector3};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -56,7 +56,11 @@ pub fn fk(joints: &[f64]) -> Result<(), String> {
     let chain = crate::kinematics::Chain::from_urdf(Path::new(URDF), "right_tcp_link")?;
     let names = chain.names();
     if joints.len() != names.len() {
-        return Err(format!("expected {} joint values, got {}", names.len(), joints.len()));
+        return Err(format!(
+            "expected {} joint values, got {}",
+            names.len(),
+            joints.len()
+        ));
     }
     let (fixed, moving) = chain.pad_inner_points(joints);
     let midpoint = [
@@ -114,19 +118,15 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
     let mut points = Vec::new();
     let mut pixels = Vec::new();
     let yellow_mask = yellow_component_mask(&rgb);
-    for index in 0..(rgb.width() as usize * rgb.height() as usize) {
-        if !yellow_mask[index] {
+    for (index, &is_yellow) in yellow_mask.iter().enumerate() {
+        if !is_yellow {
             continue;
         }
         let u = (index % camera.width) as f64;
         let v = (index / camera.width) as f64;
-        let Some(z) = depth_at_or_neighbor(
-            &depth,
-            camera.width,
-            camera.height,
-            u as usize,
-            v as usize,
-        ) else {
+        let Some(z) =
+            depth_at_or_neighbor(&depth, camera.width, camera.height, u as usize, v as usize)
+        else {
             continue;
         };
         let camera_point = [(u - cx) * z / fx, (v - cy) * z / fy, z];
@@ -138,7 +138,10 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
         pixels.push([u, v]);
     }
     if points.len() < 40 {
-        return Err(format!("yellow target not reliable: {} valid pixels", points.len()));
+        return Err(format!(
+            "yellow target not reliable: {} valid pixels",
+            points.len()
+        ));
     }
     let center = [
         median(points.iter().map(|p| p[0]).collect()),
@@ -151,15 +154,25 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
     ];
     let robust_points = robust_object_points(&points, center);
     if robust_points.len() < 40 {
-        return Err(format!("yellow geometry not reliable after filtering: {} points", robust_points.len()));
+        return Err(format!(
+            "yellow geometry not reliable after filtering: {} points",
+            robust_points.len()
+        ));
     }
     let (object_axes, object_extents) = object_obb(&robust_points, center);
     let chain = crate::kinematics::Chain::from_urdf(Path::new(URDF), "right_tcp_link")?;
     let names = chain.names();
-    let current = names.iter().map(|name| {
-        state.joint_state.positions_rad.get(name).and_then(|v| *v)
-            .ok_or_else(|| format!("missing live joint {name}"))
-    }).collect::<Result<Vec<_>, _>>()?;
+    let current = names
+        .iter()
+        .map(|name| {
+            state
+                .joint_state
+                .positions_rad
+                .get(name)
+                .and_then(|v| *v)
+                .ok_or_else(|| format!("missing live joint {name}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let (current_fixed_pad, current_moving_pad) = chain.pad_inner_points(&current);
     let current_pad_midpoint = [
         (current_fixed_pad[0] + current_moving_pad[0]) * 0.5,
@@ -175,20 +188,14 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
             continue;
         }
         for direction in [axis, [-axis[0], -axis[1], -axis[2]]] {
-            for tilt in [
-                0.0,
-                0.5235987755982988,
-                -0.5235987755982988,
-                1.0471975511965976,
-                -1.0471975511965976,
-                1.5707963267948966,
-                -1.5707963267948966,
-                2.0943951023931953,
-                -2.0943951023931953,
-                2.6179938779914944,
-                -2.6179938779914944,
-                std::f64::consts::PI,
-            ] {
+            // tilt sweep: 0, +/-30, +/-60, +/-90, +/-120, +/-150, 180 degrees
+            let tilts = std::iter::once(0.0)
+                .chain((1..=5).flat_map(|k| {
+                    let a = f64::from(k) * std::f64::consts::FRAC_PI_6;
+                    [a, -a]
+                }))
+                .chain(std::iter::once(std::f64::consts::PI));
+            for tilt in tilts {
                 if let Some(offset) =
                     chain.offset_for_top_down_closing_axis(&current, direction, tilt)
                 {
@@ -209,8 +216,8 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
                 .iter()
                 .copied()
                 .filter_map(|offset| {
-                    let approach_solution =
-                        chain.solve_position_with_reference(approach, &current, &current, offset)?;
+                    let approach_solution = chain
+                        .solve_position_with_reference(approach, &current, &current, offset)?;
                     approach_ik_count += 1;
                     let seed = names
                         .iter()
@@ -236,13 +243,14 @@ pub fn plan(latest_path: &Path) -> Result<(), String> {
                 })
                 .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
             let (approach_ik, grasp_ik) = match pair {
-                Some((_, approach_solution, grasp_solution)) =>
-                    (Some(approach_solution), Some(grasp_solution)),
+                Some((_, approach_solution, grasp_solution)) => {
+                    (Some(approach_solution), Some(grasp_solution))
+                }
                 None => (None, None),
             };
-            let grasp_metrics = grasp_ik.as_ref().map(|solution| {
-                chain.grasp_metrics(solution, center, object_axes, object_extents)
-            });
+            let grasp_metrics = grasp_ik
+                .as_ref()
+                .map(|solution| chain.grasp_metrics(solution, center, object_axes, object_extents));
             let grasp_feasible = grasp_metrics.as_ref().map(|m| m.feasible).unwrap_or(false);
             json!({
                 "rank": rank + 1,
@@ -302,9 +310,7 @@ fn yellow_component_mask(rgb: &image::RgbImage) -> Vec<bool> {
         .pixels()
         .map(|pixel| {
             let [r, g, b] = pixel.0.map(|value| value as f64);
-            r.max(g) >= 30.0
-                && r.min(g) - b >= 8.0
-                && (r - g).abs() <= 0.50 * r.max(g)
+            r.max(g) >= 30.0 && r.min(g) - b >= 8.0 && (r - g).abs() <= 0.50 * r.max(g)
         })
         .collect();
     let mut visited = vec![false; broad.len()];
@@ -321,7 +327,9 @@ fn yellow_component_mask(rgb: &image::RgbImage) -> Vec<bool> {
         let mut sum_chroma = 0.0;
         while let Some(index) = queue.pop_front() {
             component.push(index);
-            let [r, g, b] = rgb.get_pixel((index % width) as u32, (index / width) as u32).0;
+            let [r, g, b] = rgb
+                .get_pixel((index % width) as u32, (index / width) as u32)
+                .0;
             sum_r += r as f64;
             sum_g += g as f64;
             sum_chroma += r.min(g).saturating_sub(b) as f64;
@@ -428,7 +436,11 @@ fn object_obb(points: &[[f64; 3]], center: [f64; 3]) -> ([[f64; 3]; 3], [f64; 3]
     // symmetric_eigen does not order eigenvalues, so pick the major axis
     // explicitly. A near-circular footprint makes the choice arbitrary, which is
     // correct: either axis is then an equally good closing axis.
-    let major = if eigen.eigenvalues[0] >= eigen.eigenvalues[1] { 0 } else { 1 };
+    let major = if eigen.eigenvalues[0] >= eigen.eigenvalues[1] {
+        0
+    } else {
+        1
+    };
     let column = eigen.eigenvectors.column(major);
     let long = Vector3::new(column[0], column[1], 0.0).normalize();
     let short = Vector3::new(-long.y, long.x, 0.0);
@@ -437,12 +449,14 @@ fn object_obb(points: &[[f64; 3]], center: [f64; 3]) -> ([[f64; 3]; 3], [f64; 3]
     let mut extents = [0.0; 3];
     for (index, axis) in frame.iter().enumerate() {
         axes[index] = (*axis).into();
-        let mut projections: Vec<f64> = points.iter().map(|point| {
-            axis.dot(&(Vector3::new(point[0], point[1], point[2]) - center))
-        }).collect();
+        let mut projections: Vec<f64> = points
+            .iter()
+            .map(|point| axis.dot(&(Vector3::new(point[0], point[1], point[2]) - center)))
+            .collect();
         projections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         let low = projections[(projections.len() as f64 * 0.05) as usize];
-        let high = projections[((projections.len() as f64 * 0.95) as usize).min(projections.len() - 1)];
+        let high =
+            projections[((projections.len() as f64 * 0.95) as usize).min(projections.len() - 1)];
         extents[index] = high - low;
     }
     (axes, extents)
@@ -451,12 +465,16 @@ fn object_obb(points: &[[f64; 3]], center: [f64; 3]) -> ([[f64; 3]; 3], [f64; 3]
 fn robust_object_points(points: &[[f64; 3]], center: [f64; 3]) -> Vec<[f64; 3]> {
     let mut deviations = [Vec::new(), Vec::new(), Vec::new()];
     for point in points {
-        for axis in 0..3 { deviations[axis].push((point[axis] - center[axis]).abs()); }
+        for axis in 0..3 {
+            deviations[axis].push((point[axis] - center[axis]).abs());
+        }
     }
     let limits = deviations.map(|values| (median(values) * 4.0).clamp(0.012, 0.080));
-    points.iter().copied().filter(|point| {
-        (0..3).all(|axis| (point[axis] - center[axis]).abs() <= limits[axis])
-    }).collect()
+    points
+        .iter()
+        .copied()
+        .filter(|point| (0..3).all(|axis| (point[axis] - center[axis]).abs() <= limits[axis]))
+        .collect()
 }
 
 fn in_manipulation_workspace(point: [f64; 3]) -> bool {
@@ -465,102 +483,10 @@ fn in_manipulation_workspace(point: [f64; 3]) -> bool {
         && (0.76..=0.86).contains(&point[2])
 }
 
-#[cfg(test)]
-mod tests {
-    /// The block and the cube as actually measured on the table, so a regression in
-    /// the R/G threshold fails here instead of silently reporting "0 valid pixels".
-    #[test]
-    fn mask_keeps_the_yellow_block_and_drops_the_green_cube() {
-        let patch = |rgb: [u8; 3]| {
-            let mut image = image::RgbImage::new(40, 40);
-            for pixel in image.pixels_mut() {
-                *pixel = image::Rgb(rgb);
-            }
-            super::yellow_component_mask(&image).iter().filter(|kept| **kept).count()
-        };
-        assert!(patch([179, 184, 81]) > 0, "yellow block must be detected");
-        assert_eq!(patch([96, 149, 69]), 0, "green cube must be rejected");
-    }
-
-    /// The exp-20 failure, as a unit test: a block standing on end, seen from one
-    /// shallow viewpoint, so only the top face and two side faces have points.
-    /// The old 3D covariance returned three tilted axes on this input and the
-    /// planner emitted zero orientation candidates; the footprint OBB must return
-    /// two horizontal axes and recover the 30 x 18 mm footprint.
-    #[test]
-    fn footprint_axes_stay_horizontal_for_a_block_standing_on_end() {
-        // 30 x 18 mm footprint, 50 mm tall, long side along +x, on a 0.79 table.
-        let (hx, hy, h) = (0.015, 0.009, 0.050);
-        let mut points = Vec::new();
-        for i in 0..20 {
-            let t = i as f64 / 19.0;
-            for j in 0..20 {
-                let s = j as f64 / 19.0;
-                // top face
-                points.push([-hx + 2.0 * hx * t, -hy + 2.0 * hy * s, 0.79 + h]);
-                // the two side faces a camera above and to one side can see
-                points.push([-hx + 2.0 * hx * t, hy, 0.79 + h * s]);
-                points.push([hx, -hy + 2.0 * hy * t, 0.79 + h * s]);
-            }
-        }
-        let center = [
-            super::median(points.iter().map(|p| p[0]).collect()),
-            super::median(points.iter().map(|p| p[1]).collect()),
-            super::median(points.iter().map(|p| p[2]).collect()),
-        ];
-        let (axes, extents) = super::object_obb(&points, center);
-        // Both in-plane axes horizontal: this is what the 0.35 generator filter
-        // and the 0.35 object_axis_angle_rad gate need, and what the 3D
-        // covariance could not deliver (it gave |z| = 0.79 / 0.45 / 0.42).
-        assert!(axes[0][2].abs() < 1e-12, "long axis must be horizontal: {axes:?}");
-        assert!(axes[1][2].abs() < 1e-12, "short axis must be horizontal: {axes:?}");
-        assert!((axes[2][2] - 1.0).abs() < 1e-12, "third axis must be vertical");
-        // Orthonormal in-plane pair.
-        let dot = axes[0][0] * axes[1][0] + axes[0][1] * axes[1][1];
-        assert!(dot.abs() < 1e-12, "in-plane axes must be orthogonal: {dot}");
-        // Long axis found the 30 mm side, not the 18 mm one.
-        assert!(axes[0][0].abs() > 0.99, "long axis should lie along x: {axes:?}");
-        // 5/95 percentiles clip the ends, so extents read slightly under true size.
-        assert!((0.024..=0.030).contains(&extents[0]), "footprint length {}", extents[0]);
-        assert!((0.014..=0.018).contains(&extents[1]), "footprint width {}", extents[1]);
-        assert!((0.040..=0.050).contains(&extents[2]), "height span {}", extents[2]);
-    }
-    #[test]
-    fn orange_pads_are_not_yellow_but_the_block_still_is() {
-        // Means measured on frame 20260818-170043 over chromatic pixels only.
-        // White gutters keep the three patches separate components, the way the
-        // white table separates the block from the pads in a real frame.
-        let mut image = image::RgbImage::new(70, 20);
-        for y in 0..20 {
-            for x in 0..70 {
-                image.put_pixel(x, y, image::Rgb([230, 230, 230]));
-            }
-            for x in 0..20 {
-                image.put_pixel(x, y, image::Rgb([176, 178, 41])); // yellow block
-            }
-            for x in 25..40 {
-                image.put_pixel(x, y, image::Rgb([160, 91, 24])); // upper orange pad
-            }
-            for x in 45..60 {
-                image.put_pixel(x, y, image::Rgb([161, 122, 91])); // lower orange pad
-            }
-        }
-        let mask = super::yellow_component_mask(&image);
-        let count = |x0: u32, x1: u32| (x0..x1)
-            .flat_map(|x| (0..20u32).map(move |y| (x, y)))
-            .filter(|(x, y)| mask[(*y as usize) * 70 + *x as usize])
-            .count();
-        assert_eq!(count(0, 20), 400, "the yellow block must still be selected");
-        assert_eq!(count(25, 40), 0, "the upper orange pad must be rejected");
-        assert_eq!(count(45, 60), 0, "the lower orange pad must be rejected");
-    }
-}
-
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
     let data = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     serde_json::from_slice(&data).map_err(|e| format!("{}: {e}", path.display()))
 }
-
 
 fn transform_point(tf: &Transform, p: [f64; 3]) -> Result<[f64; 3], String> {
     if tf.translation_m.len() != 3 || tf.rotation_xyzw.len() != 4 {
@@ -622,5 +548,124 @@ fn read_npy_f32(path: &Path, expected: usize) -> Result<Vec<f32>, String> {
         .chunks_exact(4)
         .map(|v| f32::from_le_bytes([v[0], v[1], v[2], v[3]]))
         .collect())
+}
 
+#[cfg(test)]
+mod tests {
+    /// The block and the cube as actually measured on the table, so a regression in
+    /// the R/G threshold fails here instead of silently reporting "0 valid pixels".
+    #[test]
+    fn mask_keeps_the_yellow_block_and_drops_the_green_cube() {
+        let patch = |rgb: [u8; 3]| {
+            let mut image = image::RgbImage::new(40, 40);
+            for pixel in image.pixels_mut() {
+                *pixel = image::Rgb(rgb);
+            }
+            super::yellow_component_mask(&image)
+                .iter()
+                .filter(|kept| **kept)
+                .count()
+        };
+        assert!(patch([179, 184, 81]) > 0, "yellow block must be detected");
+        assert_eq!(patch([96, 149, 69]), 0, "green cube must be rejected");
+    }
+
+    /// The exp-20 failure, as a unit test: a block standing on end, seen from one
+    /// shallow viewpoint, so only the top face and two side faces have points.
+    /// The old 3D covariance returned three tilted axes on this input and the
+    /// planner emitted zero orientation candidates; the footprint OBB must return
+    /// two horizontal axes and recover the 30 x 18 mm footprint.
+    #[test]
+    fn footprint_axes_stay_horizontal_for_a_block_standing_on_end() {
+        // 30 x 18 mm footprint, 50 mm tall, long side along +x, on a 0.79 table.
+        let (hx, hy, h) = (0.015, 0.009, 0.050);
+        let mut points = Vec::new();
+        for i in 0..20 {
+            let t = i as f64 / 19.0;
+            for j in 0..20 {
+                let s = j as f64 / 19.0;
+                // top face
+                points.push([-hx + 2.0 * hx * t, -hy + 2.0 * hy * s, 0.79 + h]);
+                // the two side faces a camera above and to one side can see
+                points.push([-hx + 2.0 * hx * t, hy, 0.79 + h * s]);
+                points.push([hx, -hy + 2.0 * hy * t, 0.79 + h * s]);
+            }
+        }
+        let center = [
+            super::median(points.iter().map(|p| p[0]).collect()),
+            super::median(points.iter().map(|p| p[1]).collect()),
+            super::median(points.iter().map(|p| p[2]).collect()),
+        ];
+        let (axes, extents) = super::object_obb(&points, center);
+        // Both in-plane axes horizontal: this is what the 0.35 generator filter
+        // and the 0.35 object_axis_angle_rad gate need, and what the 3D
+        // covariance could not deliver (it gave |z| = 0.79 / 0.45 / 0.42).
+        assert!(
+            axes[0][2].abs() < 1e-12,
+            "long axis must be horizontal: {axes:?}"
+        );
+        assert!(
+            axes[1][2].abs() < 1e-12,
+            "short axis must be horizontal: {axes:?}"
+        );
+        assert!(
+            (axes[2][2] - 1.0).abs() < 1e-12,
+            "third axis must be vertical"
+        );
+        // Orthonormal in-plane pair.
+        let dot = axes[0][0] * axes[1][0] + axes[0][1] * axes[1][1];
+        assert!(dot.abs() < 1e-12, "in-plane axes must be orthogonal: {dot}");
+        // Long axis found the 30 mm side, not the 18 mm one.
+        assert!(
+            axes[0][0].abs() > 0.99,
+            "long axis should lie along x: {axes:?}"
+        );
+        // 5/95 percentiles clip the ends, so extents read slightly under true size.
+        assert!(
+            (0.024..=0.030).contains(&extents[0]),
+            "footprint length {}",
+            extents[0]
+        );
+        assert!(
+            (0.014..=0.018).contains(&extents[1]),
+            "footprint width {}",
+            extents[1]
+        );
+        assert!(
+            (0.040..=0.050).contains(&extents[2]),
+            "height span {}",
+            extents[2]
+        );
+    }
+    #[test]
+    fn orange_pads_are_not_yellow_but_the_block_still_is() {
+        // Means measured on frame 20260818-170043 over chromatic pixels only.
+        // White gutters keep the three patches separate components, the way the
+        // white table separates the block from the pads in a real frame.
+        let mut image = image::RgbImage::new(70, 20);
+        for y in 0..20 {
+            for x in 0..70 {
+                image.put_pixel(x, y, image::Rgb([230, 230, 230]));
+            }
+            for x in 0..20 {
+                image.put_pixel(x, y, image::Rgb([176, 178, 41])); // yellow block
+            }
+            for x in 25..40 {
+                image.put_pixel(x, y, image::Rgb([160, 91, 24])); // upper orange pad
+            }
+            for x in 45..60 {
+                image.put_pixel(x, y, image::Rgb([161, 122, 91])); // lower orange pad
+            }
+        }
+        let mask = super::yellow_component_mask(&image);
+        let count = |x0: u32, x1: u32| {
+            (x0..x1)
+                .flat_map(|x| (0..20u32).map(move |y| (x, y)))
+                .filter(|(x, y)| mask[(*y as usize) * 70 + *x as usize])
+                .count()
+        };
+        assert_eq!(count(0, 20), 400, "the yellow block must still be selected");
+        assert_eq!(count(25, 40), 0, "the upper orange pad must be rejected");
+        assert_eq!(count(45, 60), 0, "the lower orange pad must be rejected");
+    }
 }

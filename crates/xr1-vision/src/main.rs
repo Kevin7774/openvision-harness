@@ -4,8 +4,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-mod perception;
 mod kinematics;
+mod perception;
 
 const ROOT: &str = "/home/astrabot/workspace/data";
 const SCRIPTS: &str = "/home/astrabot/workspace/py";
@@ -41,7 +41,7 @@ fn run() -> Result<(), String> {
 }
 
 fn print_help() {
-    println!("vision-harness <command>");
+    println!("xr1-vision <command>");
     println!("  preflight");
     println!("  observe");
     println!("  plan");
@@ -52,8 +52,6 @@ fn print_help() {
     println!("  end --status SUCCESS|FAILED");
     println!("  status");
 }
-
-
 
 fn command(name: &str, args: &[&str]) -> Result<(), String> {
     let mut shell_command = format!(
@@ -168,7 +166,7 @@ fn begin(args: Vec<String>) -> Result<(), String> {
         "# Experiment {id}\n\nVideo: `{clip}.mov`\n\nParent Experiment: {}\n\nPurpose:\n{purpose}\n\nObservation:\n\nHypothesis:\n\nPrediction:\n\nAction:\n\nPost Observation:\n\nPrediction Match:\n\nError:\n\nMinimal Repair:\n\nMemory Update:\n\nNext Hypothesis:\n",
         if number > 1 { format!("{:02}", number - 1) } else { "NONE".into() }
     );
-    fs::write(&report, initial).map_err(|e| e.to_string())?;
+    fs::write(report, initial).map_err(|e| e.to_string())?;
     fs::write(active_path(), format!("{id}\n")).map_err(|e| e.to_string())?;
     println!("{{\"ok\":true,\"experiment\":\"{id}\",\"video\":\"{clip}.mov\"}}");
     Ok(())

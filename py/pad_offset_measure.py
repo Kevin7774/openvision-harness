@@ -13,7 +13,7 @@ millimetres. Run it on two different poses -- a constant tool-frame offset gives
 the same tool-frame vector both times, a rotation error does not.
 
 usage: pad_offset_measure.py FRAME_DIR FK_JSON
-  FK_JSON is the stdout of `vision-harness fk Q1..Q7` for the pose in that frame.
+  FK_JSON is the stdout of `xr1-vision fk Q1..Q7` for the pose in that frame.
 """
 import json
 import sys

@@ -1,4 +1,6 @@
-use nalgebra::{DMatrix, DVector, Isometry3, Matrix3, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
+use nalgebra::{
+    DMatrix, DVector, Isometry3, Matrix3, Rotation3, Translation3, Unit, UnitQuaternion, Vector3,
+};
 use roxmltree::Document;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -52,7 +54,6 @@ pub struct GraspMetrics {
 }
 
 impl Chain {
-
     pub fn from_urdf(path: &Path, tip: &str) -> Result<Self, String> {
         let xml = fs::read_to_string(path).map_err(|e| e.to_string())?;
         let doc = Document::parse(&xml).map_err(|e| e.to_string())?;
@@ -63,49 +64,88 @@ impl Chain {
             let parent = child_attr(&node, "parent", "link")?;
             let child = child_attr(&node, "child", "link")?;
             let origin_node = node.children().find(|n| n.has_tag_name("origin"));
-            let xyz = parse_vec(origin_node.and_then(|n| n.attribute("xyz")).unwrap_or("0 0 0"))?;
-            let rpy = parse_vec(origin_node.and_then(|n| n.attribute("rpy")).unwrap_or("0 0 0"))?;
+            let xyz = parse_vec(
+                origin_node
+                    .and_then(|n| n.attribute("xyz"))
+                    .unwrap_or("0 0 0"),
+            )?;
+            let rpy = parse_vec(
+                origin_node
+                    .and_then(|n| n.attribute("rpy"))
+                    .unwrap_or("0 0 0"),
+            )?;
             let origin = Isometry3::from_parts(
                 Translation3::new(xyz[0], xyz[1], xyz[2]),
                 UnitQuaternion::from_euler_angles(rpy[0], rpy[1], rpy[2]),
             );
             let axis_node = node.children().find(|n| n.has_tag_name("axis"));
-            let axis_v = parse_vec(axis_node.and_then(|n| n.attribute("xyz")).unwrap_or("0 0 1"))?;
+            let axis_v = parse_vec(
+                axis_node
+                    .and_then(|n| n.attribute("xyz"))
+                    .unwrap_or("0 0 1"),
+            )?;
             let limit_node = node.children().find(|n| n.has_tag_name("limit"));
-            let lower = limit_node.and_then(|n| n.attribute("lower")).and_then(|v| v.parse().ok()).unwrap_or(0.0);
-            let upper = limit_node.and_then(|n| n.attribute("upper")).and_then(|v| v.parse().ok()).unwrap_or(0.0);
-            by_child.insert(child.clone(), Joint {
-                name, parent, origin,
-                axis: Vector3::new(axis_v[0], axis_v[1], axis_v[2]),
-                lower, upper,
-                movable: matches!(kind, "revolute" | "continuous"),
-            });
+            let lower = limit_node
+                .and_then(|n| n.attribute("lower"))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            let upper = limit_node
+                .and_then(|n| n.attribute("upper"))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            by_child.insert(
+                child.clone(),
+                Joint {
+                    name,
+                    parent,
+                    origin,
+                    axis: Vector3::new(axis_v[0], axis_v[1], axis_v[2]),
+                    lower,
+                    upper,
+                    movable: matches!(kind, "revolute" | "continuous"),
+                },
+            );
         }
         let mut joints = Vec::new();
         let mut link = tip.to_string();
         while link != "base_link" {
-            let joint = by_child.get(&link).ok_or_else(|| format!("no parent joint for {link}"))?.clone();
+            let joint = by_child
+                .get(&link)
+                .ok_or_else(|| format!("no parent joint for {link}"))?
+                .clone();
             link = joint.parent.clone();
             joints.push(joint);
         }
         joints.reverse();
-        let active = joints.iter().enumerate().filter_map(|(i, j)| j.movable.then_some(i)).collect();
+        let active = joints
+            .iter()
+            .enumerate()
+            .filter_map(|(i, j)| j.movable.then_some(i))
+            .collect();
         Ok(Self { joints, active })
     }
 
     pub fn names(&self) -> Vec<String> {
-        self.active.iter().map(|&i| self.joints[i].name.clone()).collect()
+        self.active
+            .iter()
+            .map(|&i| self.joints[i].name.clone())
+            .collect()
     }
 
     pub fn pad_inner_points(&self, q: &[f64]) -> ([f64; 3], [f64; 3]) {
         let tcp = self.fk(q);
-        let fixed = tcp * nalgebra::Point3::new(
-            FIXED_PAD_INNER_M[0], FIXED_PAD_INNER_M[1], FIXED_PAD_INNER_M[2]);
-        let moving = tcp * nalgebra::Point3::new(
-            MOVING_PAD_INNER_OPEN_M[0],
-            MOVING_PAD_INNER_OPEN_M[1],
-            MOVING_PAD_INNER_OPEN_M[2],
-        );
+        let fixed = tcp
+            * nalgebra::Point3::new(
+                FIXED_PAD_INNER_M[0],
+                FIXED_PAD_INNER_M[1],
+                FIXED_PAD_INNER_M[2],
+            );
+        let moving = tcp
+            * nalgebra::Point3::new(
+                MOVING_PAD_INNER_OPEN_M[0],
+                MOVING_PAD_INNER_OPEN_M[1],
+                MOVING_PAD_INNER_OPEN_M[2],
+            );
         (fixed.coords.into(), moving.coords.into())
     }
 
@@ -116,16 +156,18 @@ impl Chain {
         tilt_rad: f64,
     ) -> Option<[f64; 3]> {
         let mut x = Vector3::new(object_axis[0], object_axis[1], 0.0);
-        if x.norm() < 1e-6 { return None; }
+        if x.norm() < 1e-6 {
+            return None;
+        }
         x.normalize_mut();
         let z = Vector3::new(0.0, 0.0, -1.0);
         let mut y = z.cross(&x);
         y.normalize_mut();
         x = y.cross(&z).normalize();
         let desired_matrix = Matrix3::from_columns(&[x, y, z]);
-        let desired = UnitQuaternion::from_rotation_matrix(
-            &Rotation3::from_matrix_unchecked(desired_matrix))
-            * UnitQuaternion::from_axis_angle(&Vector3::x_axis(), tilt_rad);
+        let desired =
+            UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(desired_matrix))
+                * UnitQuaternion::from_axis_angle(&Vector3::x_axis(), tilt_rad);
         let current_rotation = self.fk(current).rotation;
         let delta = current_rotation.inverse() * desired;
         let (roll, pitch, yaw) = delta.euler_angles();
@@ -139,9 +181,16 @@ impl Chain {
         object_axes: [[f64; 3]; 3],
         object_extents: [f64; 3],
     ) -> GraspMetrics {
-        let by_name: HashMap<&str, f64> = solution.joints.iter()
-            .map(|(name, value)| (name.as_str(), *value)).collect();
-        let q: Vec<f64> = self.names().iter().map(|name| by_name[name.as_str()]).collect();
+        let by_name: HashMap<&str, f64> = solution
+            .joints
+            .iter()
+            .map(|(name, value)| (name.as_str(), *value))
+            .collect();
+        let q: Vec<f64> = self
+            .names()
+            .iter()
+            .map(|name| by_name[name.as_str()])
+            .collect();
         let tcp = self.fk(&q);
         let (fixed_pad_array, moving_pad_array) = self.pad_inner_points(&q);
         let fixed_pad = nalgebra::Point3::from(fixed_pad_array);
@@ -154,9 +203,14 @@ impl Chain {
         let mut best_width = f64::INFINITY;
         for (axis, width) in object_axes.iter().zip(object_extents) {
             let axis = Vector3::new(axis[0], axis[1], axis[2]);
-            if axis.z.abs() > 0.75 { continue; }
+            if axis.z.abs() > 0.75 {
+                continue;
+            }
             let angle = closing.dot(&axis).abs().clamp(-1.0, 1.0).acos();
-            if angle < best_angle { best_angle = angle; best_width = width; }
+            if angle < best_angle {
+                best_angle = angle;
+                best_width = width;
+            }
         }
         let clearance = OPEN_JAW_GAP_M - best_width;
         let fixed_signed = (fixed_pad.coords - center).dot(&closing);
@@ -164,8 +218,11 @@ impl Chain {
         let half_width = best_width * 0.5;
         let pads_bracket_object = fixed_signed.max(moving_signed) >= half_width
             && fixed_signed.min(moving_signed) <= -half_width;
-        let feasible = center_error <= 0.008 && best_angle <= 0.35
-            && best_width >= 0.005 && clearance >= 0.004 && pads_bracket_object;
+        let feasible = center_error <= 0.008
+            && best_angle <= 0.35
+            && best_width >= 0.005
+            && clearance >= 0.004
+            && pads_bracket_object;
         GraspMetrics {
             pad_midpoint_error_m: center_error,
             closing_axis: closing.into(),
@@ -199,8 +256,7 @@ impl Chain {
     }
 
     fn contact_pose(&self, q: &[f64]) -> Isometry3<f64> {
-        self.fk(q) * Isometry3::translation(
-            TIP_CENTER_M[0], TIP_CENTER_M[1], TIP_CENTER_M[2])
+        self.fk(q) * Isometry3::translation(TIP_CENTER_M[0], TIP_CENTER_M[1], TIP_CENTER_M[2])
     }
 
     fn clamp(&self, q: &mut [f64]) {
@@ -209,7 +265,6 @@ impl Chain {
             *value = value.clamp(joint.lower, joint.upper);
         }
     }
-
 
     pub fn solve_position_with_reference(
         &self,
@@ -220,7 +275,10 @@ impl Chain {
     ) -> Option<Solution> {
         let target_rotation = self.fk(reference).rotation
             * UnitQuaternion::from_euler_angles(
-                orientation_offset[0], orientation_offset[1], orientation_offset[2]);
+                orientation_offset[0],
+                orientation_offset[1],
+                orientation_offset[2],
+            );
         self.solve_pose(
             Vector3::new(target[0], target[1], target[2]),
             target_rotation,
@@ -236,9 +294,14 @@ impl Chain {
         current: &[f64],
         orientation_offset: [f64; 3],
     ) -> Option<Solution> {
-        let midpoint: Vec<f64> = self.active.iter().map(|&i| {
-            let j = &self.joints[i]; (j.lower + j.upper) * 0.5
-        }).collect();
+        let midpoint: Vec<f64> = self
+            .active
+            .iter()
+            .map(|&i| {
+                let j = &self.joints[i];
+                (j.lower + j.upper) * 0.5
+            })
+            .collect();
         let blended: Vec<f64> = current
             .iter()
             .zip(&midpoint)
@@ -260,8 +323,11 @@ impl Chain {
                 let tcp_pose = self.fk(&q);
                 let contact_pose = self.contact_pose(&q);
                 let position_error = target - contact_pose.translation.vector;
-                let orientation_error = (target_rotation * tcp_pose.rotation.inverse()).scaled_axis();
-                if position_error.norm() < 0.004 && orientation_error.norm() < 0.04 { break; }
+                let orientation_error =
+                    (target_rotation * tcp_pose.rotation.inverse()).scaled_axis();
+                if position_error.norm() < 0.004 && orientation_error.norm() < 0.04 {
+                    break;
+                }
                 let mut jac = DMatrix::zeros(6, q.len());
                 let eps = 1e-4;
                 for column in 0..q.len() {
@@ -269,14 +335,25 @@ impl Chain {
                     shifted[column] += eps;
                     let shifted_tcp = self.fk(&shifted);
                     let shifted_contact = self.contact_pose(&shifted);
-                    let position_delta = (shifted_contact.translation.vector - contact_pose.translation.vector) / eps;
-                    let rotation_delta = (shifted_tcp.rotation * tcp_pose.rotation.inverse()).scaled_axis() / eps;
-                    for row in 0..3 { jac[(row, column)] = position_delta[row]; }
-                    for row in 0..3 { jac[(row + 3, column)] = rotation_delta[row]; }
+                    let position_delta = (shifted_contact.translation.vector
+                        - contact_pose.translation.vector)
+                        / eps;
+                    let rotation_delta =
+                        (shifted_tcp.rotation * tcp_pose.rotation.inverse()).scaled_axis() / eps;
+                    for row in 0..3 {
+                        jac[(row, column)] = position_delta[row];
+                    }
+                    for row in 0..3 {
+                        jac[(row + 3, column)] = rotation_delta[row];
+                    }
                 }
                 let e = DVector::from_column_slice(&[
-                    position_error[0], position_error[1], position_error[2],
-                    orientation_error[0], orientation_error[1], orientation_error[2],
+                    position_error[0],
+                    position_error[1],
+                    position_error[2],
+                    orientation_error[0],
+                    orientation_error[1],
+                    orientation_error[2],
                 ]);
                 let lhs = &jac * jac.transpose() + DMatrix::identity(6, 6) * 1e-4;
                 let Some(step6) = lhs.lu().solve(&e) else {
@@ -291,30 +368,58 @@ impl Chain {
             let final_tcp = self.fk(&q);
             let final_contact = self.contact_pose(&q);
             let residual = (target - final_contact.translation.vector).norm();
-            let orientation_residual = (target_rotation * final_tcp.rotation.inverse()).scaled_axis().norm();
-            let max_delta = q.iter().zip(current).map(|(a,b)| (a-b).abs()).fold(0.0, f64::max);
-            let min_limit_margin = q.iter().zip(&self.active).map(|(value, &index)| {
-                let joint = &self.joints[index];
-                (value - joint.lower).min(joint.upper - value)
-            }).fold(f64::INFINITY, f64::min);
+            let orientation_residual = (target_rotation * final_tcp.rotation.inverse())
+                .scaled_axis()
+                .norm();
+            let max_delta = q
+                .iter()
+                .zip(current)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f64::max);
+            let min_limit_margin = q
+                .iter()
+                .zip(&self.active)
+                .map(|(value, &index)| {
+                    let joint = &self.joints[index];
+                    (value - joint.lower).min(joint.upper - value)
+                })
+                .fold(f64::INFINITY, f64::min);
             let floor_clear = (0..=20).all(|step| {
                 let t = step as f64 / 20.0;
-                let sample: Vec<f64> = current.iter().zip(&q).map(|(a,b)| a + t*(b-a)).collect();
+                let sample: Vec<f64> = current
+                    .iter()
+                    .zip(&q)
+                    .map(|(a, b)| a + t * (b - a))
+                    .collect();
                 self.contact_pose(&sample).translation.vector.z > 0.785
             });
             let limit_penalty = if min_limit_margin < 0.12 {
                 (0.12 - min_limit_margin) * 50.0
-            } else { 0.0 };
-            let score = residual * 1000.0 + orientation_residual * 20.0
-                + max_delta * 4.0 + limit_penalty + if floor_clear { 0.0 } else { 1000.0 };
+            } else {
+                0.0
+            };
+            let score = residual * 1000.0
+                + orientation_residual * 20.0
+                + max_delta * 4.0
+                + limit_penalty
+                + if floor_clear { 0.0 } else { 1000.0 };
             let solution = Solution {
-                joints: self.names().into_iter().zip(q).collect(), residual_m: residual,
+                joints: self.names().into_iter().zip(q).collect(),
+                residual_m: residual,
                 orientation_residual_rad: orientation_residual,
-                max_delta_rad: max_delta, score, floor_clear,
+                max_delta_rad: max_delta,
+                score,
+                floor_clear,
                 orientation_offset_rpy_rad: orientation_offset,
                 min_limit_margin_rad: min_limit_margin,
             };
-            if best.as_ref().map(|b| solution.score < b.score).unwrap_or(true) { best = Some(solution); }
+            if best
+                .as_ref()
+                .map(|b| solution.score < b.score)
+                .unwrap_or(true)
+            {
+                best = Some(solution);
+            }
         }
         if let Some(solution) = &best {
             if solution.residual_m > 0.015
@@ -372,12 +477,21 @@ pub fn grasp_metrics_json(metrics: &GraspMetrics) -> Value {
 }
 
 fn child_attr(node: &roxmltree::Node<'_, '_>, tag: &str, attr: &str) -> Result<String, String> {
-    node.children().find(|n| n.has_tag_name(tag)).and_then(|n| n.attribute(attr))
-        .map(str::to_string).ok_or_else(|| format!("joint missing {tag}/{attr}"))
+    node.children()
+        .find(|n| n.has_tag_name(tag))
+        .and_then(|n| n.attribute(attr))
+        .map(str::to_string)
+        .ok_or_else(|| format!("joint missing {tag}/{attr}"))
 }
 
 fn parse_vec(value: &str) -> Result<[f64; 3], String> {
-    let values = value.split_whitespace().map(str::parse::<f64>).collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
-    if values.len() != 3 { return Err(format!("expected 3-vector: {value}")); }
+    let values = value
+        .split_whitespace()
+        .map(str::parse::<f64>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if values.len() != 3 {
+        return Err(format!("expected 3-vector: {value}"));
+    }
     Ok([values[0], values[1], values[2]])
 }
