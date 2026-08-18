@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """外部摄像头录制器的机器人侧驱动（对端是 Mac 上的 XR1Rec.app）。
 
-mac/install_mac_recorder.sh 的注释里点名"由 python3 scripts/xr1_cam.py install
+mac/install_mac_recorder.sh 的注释里点名"由 python3 py/xr1_cam.py install
 推送并调用"，但这个文件之前不存在 —— 这里补上。
 
 为什么不直接在每条命令里跑 ssh：

@@ -1,9 +1,11 @@
 # 硬件与配置权威地图
 
-> ⚠️ **脚本名是历史记录,不是入口。** 本文多处写 `python3 scripts/xr1_verify.py`
-> ——**那个脚本不存在了**([ADR 0003](../decisions/0003-lost-python-pipeline.md))。
-> 它做的检查现在是三条:`py/xr1.py pose`(关节/夹爪反馈)、`bin/tf-frames`
-> (TF 总数 52 / zed 6)、`py/xr1_cam.py doctor`(录制器)。**硬件数字本身仍然有效。**
+> ⚠️ **文中出现的 `scripts/xr1_verify.py`、`scripts/arm_unit_probe.py`、
+> `scripts/gripper_cmd.py` 都已不在磁盘上**
+> ([ADR 0003](../decisions/0003-lost-python-pipeline.md))。所有「去跑它」的地方
+> 已改写成现在真实存在的检查:`py/xr1.py pose`(关节/夹爪反馈)、`bin/tf-frames`
+> (TF 总数 52 / zed 6)、`py/xr1_cam.py doctor`(录制器)。剩下的脚本名只作为
+> **某个数字是怎么测出来的**的标签保留。**硬件数字本身仍然有效。**
 >
 > **这份文档的每一行都来自本机实测**，不是抄手册、不是推测。
 > 采集时间：2026-08-07 15:50–16:40 CST · 主机 `tegra-ubuntu` (192.168.123.102)
@@ -148,7 +150,7 @@ astrabot_shutdown            shutdown_node.launch.py
 → **2026-08-10 复核：在跑。** 这是 08-07 的瞬时状态，不要当结论读。
 它当时处于 failed 状态，恢复自启用
 `systemctl reset-failed Astrabot_ZED && systemctl start Astrabot_ZED`（这条仍然有效）。
-**判断它现在活不活：`python3 scripts/xr1_verify.py`。**
+**判断它现在活不活：`py/xr1.py pose` ＋ `bin/tf-frames`。**
 
 > 注意 `Astrabot_Controller.sh` 于 2026-08-07 被改过：原来启的是 arm-only 的
 > ros2_control launch，改成了 `..._arm_head_forward_ros2_control.launch.py` 以便把颈部
@@ -277,7 +279,7 @@ udev 规则里必须带它，否则符号链接会随机指到 metadata node 上
 1. **单变量拔线实验** —— 让人物理拔掉某一侧，看内核掉的是哪个口（`dmesg | grep 'usb 1-4'`）。
    ⚠️ **不能用插拔史反推** —— 插拔史只告诉你哪个口在动，不告诉你哪个口是哪一侧（我在这上面错过一次）。
 2. **抓一帧看画面里有没有同侧橙色夹垫** —— 真装在某侧腕上的相机必然看得见同侧夹垫。
-   检测器：HSV `(5,120,80)-(25,255,255)` + `MORPH_OPEN`，脚本 `experiments/wristcam/grab.py`。
+   检测器：HSV `(5,120,80)-(25,255,255)` + `MORPH_OPEN`，脚本 `data/experiments/wristcam/grab.py`。
 
 > 原文那句"我一度打算再写一份自己的腕部 udev 规则，已丢弃 —— 厂家那份已经对了"
 > **也作废了**：厂商那份当时是反的，现在已装 `/etc/udev/rules.d/99-astrabot-wrist-camera.rules`
@@ -448,7 +450,7 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 > 那是 08-07 那次抓取时的瞬时状态，已经过期。现在 `/opt/ros/start_up/run/Astrabot_ZED.sh`
 > 和 `Astrabot_ZED_Points.sh` 都在，`zed_container` / `zed_points_preprocessing_container`
 > 在位，`/zed/zed_node/**` 话题正常。
-> **要判断它现在活不活，跑 `python3 scripts/xr1_verify.py`（第 6 节），别读这一行。**
+> **要判断它现在活不活，跑 `py/xr1.py pose` ＋ `bin/tf-frames`（第 6 节），别读这一行。**
 > 文档里凡是"当前 X 没在跑"这种瞬时状态，都只能当历史记录看。
 
 配置文件（`/opt/ros/astrabot/share/zed_wrapper/config/`）当前值：
@@ -500,7 +502,7 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 >
 > 因此：
 > 1. 每次改都留 `.bak-<时间戳>`（已做，6 个文件都有）
-> 2. **不要靠本文档做校验** —— 跑 `python3 scripts/xr1_verify.py` 第 10 节，
+> 2. **不要靠本文档做校验** —— 跑 `py/xr1.py pose` ＋ `bin/tf-frames`，
 >    6 条 guard 会逐条告诉你哪个被回退了、为什么要紧、怎么改回去
 > 3. 每条 guard 都验证过"在 live 上通过、在厂商 `.bak` 上失败"。**新加改动时也必须
 >    这样双向验证**，否则会写出一条永远绿的假 guard（`Astrabot_Controller.sh` 就是：
@@ -512,7 +514,7 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 
 > 状态截至 **2026-08-10 全量复验**，**2026-08-11 新增 D13~D15**。已关闭的条目保留原文
 > 并标 **已证伪 / 已修复**，因为「当初为什么会那样判断」本身就是要记住的东西（D3 / D7 / D10）。
-> 自动复查:`python3 ../scripts/xr1_verify.py`（08-11 起多了一段 **TF 检查**：frame 总数 /
+> 自动复查:`bin/tf-frames`（当年是 `xr1_verify.py` 里的一段 **TF 检查**：frame 总数 /
 > 根数 / **zed frame 数**，`<5` 直接 FAIL —— 见 D13）。
 
 | # | 现象 | 实测证据 | 影响 / 建议 |
@@ -529,7 +531,7 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 | D10 | ~~手臂 `/joint_states` 单位不是弧度~~ → **已证伪。真正的缺陷是：控制器收到第一条指令之前，手臂反馈是未锁存的无效值** | `scripts/arm_unit_probe.py` 实测：指令 +0.174533 rad → 反馈增量 +0.174526，**系数 1.0000 = 弧度**；发过第一条指令后 14 路全部落到 ±0.000006 并稳住（1530 帧，极差 3 µrad） | 🟠 **仍然危险，但危险点变了**：`报出值 × 减速比` 恒为 95.8738 整数倍那套算术是**冷启动**现象，不是单位问题。**规则：先发一条指令，再信反馈。** 绝不要在控制器刚起来时用 `/joint_states` 构造「保持当前位姿」—— 那正是把 `left_arm_6` 发到 544°（限位 ±1.57 rad）的方式。安全起点是全 14 路发常量 `0.0`。详见 ADR 0003 所述的已删文档 |
 | D11 | **全机没有力 / 力矩 / 接触反馈** | `effort` 在 16 个关节上全是 `.nan`；夹爪状态数组里 `running/temp/error` 在 `g2_gripper_node.py` 里**硬编码为 0**，只有 `pos_mm` 是真传感器 | 不能靠触碰探测桌高；不能对夹持力闭环（`force_cmd` 是开环丢给固件）。**唯一可用的接触代理**：命令开口 vs 实际 `pos_mm`，卡住比命令值宽 = 指间有东西（`scripts/gripper_cmd.py --ramp` 已实现） |
 | D12 | 头部看不到自己的工作区 | `head_pitch` 必须压到 **+40° 限位**，ZED 视野才和手臂可达区有交集；居中所需的角度**超出限位** | 桌面精细判定只能靠**腕部相机**，不能指望头部 ZED。这条反向约束了判定器设计，见 `09_*.md` §1 |
-| **D13** | **ZED 自己那棵 TF 会整棵消失，而图像话题照发**（2026-08-11 新增） | 08-10 16:22 起持续一整夜：机体 TF 完好、`/zed/.../image/compressed` 正常在发，但 **6 个 zed frame 一个都没有**，感知报拿不到 `base_link ← zed_camera_link`。哑掉的是 `zed_state_publisher` | 🔴 **判据是「数 zed frame 个数」（正常 6，`<5` 即故障），不是看图像 Hz。** `tf2_echo base_link zed_camera_link` 会**误报正常**。修法：`systemctl restart Astrabot_ZED.service`（~45 s 后复验）。这条故障期间 `xr1.py status` 一直全绿 —— 因为它只查图像话题，现已修进 `xr1_verify.py`（`../operations/pitfalls.md` §38）|
+| **D13** | **ZED 自己那棵 TF 会整棵消失，而图像话题照发**（2026-08-11 新增） | 08-10 16:22 起持续一整夜：机体 TF 完好、`/zed/.../image/compressed` 正常在发，但 **6 个 zed frame 一个都没有**，感知报拿不到 `base_link ← zed_camera_link`。哑掉的是 `zed_state_publisher` | 🔴 **判据是「数 zed frame 个数」（正常 6，`<5` 即故障），不是看图像 Hz。** `tf2_echo base_link zed_camera_link` 会**误报正常**。修法：`systemctl restart Astrabot_ZED.service`（~45 s 后复验）。这条故障期间 `xr1.py status` 一直全绿 —— 因为它只查图像话题。现在数 frame 的是 `bin/tf-frames`（`../operations/pitfalls.md` §38）|
 | **D14** | **串口设备节点会被重新枚举，而持有它的驱动进程照样活着**（2026-08-11 新增） | 08-11 **00:04** `/dev/ttyAMA5`(204,69) 与 `/dev/ttyUSB0`(188,0) 被重新创建；`g2_gripper_node` (pid 487809) 启动于此之前，`fuser -v` 显示它仍占着这两个节点，但读回全静默。**`SIGTERM` 无效**（阻塞在串口 read 上） | 🔴 **只有 `kill -9`。** 判据是**比时间戳**：`ls -l /dev/tty*` 的创建时间 vs `ps -o lstart= -p <pid>` —— **设备比进程新 ⇒ 废 fd**。⚠️ `xr1.py bringup` 在这个状态下**修不了**：它的存在判据是 `pgrep`，进程在就不重拉（它会如实打印 `STILL SILENT`，但那容易被读成"再等等"）。元教训：**「进程在」≠「设备可用」**（`../operations/pitfalls.md` §39）|
 | **D15** | **两个 URDF 里腕相机 `origin` 左右完全相同，而关节轴是镜像的**（2026-08-11 新增） | 左右都是 `xyz="0 -0.0768 0.0995"`（rpy 也一样），而 `axis` 一侧 `0 1 0`、另一侧 `0 -1 0`。左右对称机械上 y 应当反号 ⇒ **至少一侧 y 符号错**，量级 ~2×76.8 = **154 mm**。而且全机搜不到这个数的出处（§28：谁量的没人记录） | 🔴 **不要在它上面建手眼标定。** 腕相机是唯一绕开 `head_yaw` 半米误差链的通道，所以这条很要紧。`scripts/teleop_truth.py` 顺带存了腕相机 TF + 两路腕相机图，可以把它**拟合**出来再用（`../operations/pitfalls.md` §28/§44）|
 
