@@ -115,7 +115,7 @@ mistaken for coverage.
 | The tool-frame error is open and partly rotational | grasping is orientation-dependent; the 08-18 success is not repeatable at another block yaw ([ADR 0004](../decisions/0004-tool-frame-error-is-still-open.md)) |
 | Visual servo exists as a spec, not code | the closed loop that reached 9 px was lost with the Python ([ADR 0003](../decisions/0003-lost-python-pipeline.md)); [spec](../development/visual-servo.md) |
 | D455 publishes 0 TF frames and no depth under 250 mm | the last 25 cm of every descent is open-loop |
-| No `cargo deny` / `audit` / `nextest` | dependency and licence drift is unchecked ([building](../development/building.md)) |
+| No `cargo deny` / `nextest`; `cargo audit` cannot run on rustc 1.75 | licence drift is unchecked; advisories are covered instead by `bin/audit-deps` (0 of 41 crates vulnerable) ([building](../development/building.md)) |
 
 ## Recovery
 

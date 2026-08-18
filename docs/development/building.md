@@ -67,10 +67,40 @@ and their only meaningful oracle is the robot. What guards them instead is
 `xr1-vision plan`, which is a dry run by default --- it prints ranked candidates
 and moves nothing. That is the check to run after touching either file.
 
-## Not yet installed
+## Dependency audit
 
-`cargo-deny`, `cargo-audit`, `cargo-nextest`, `cargo-machete`. Each wants
-network and a newer toolchain than 1.75 for its current release. With four
-dependencies and one crate, `cargo tree` and rustc's own dead-code pass cover
-what they would tell us today; revisit when the workspace grows a second crate
-or a dependency with a transitive tail.
+`bin/audit-deps` checks all 41 locked crates against the RustSec advisory
+database in `~/.cargo/advisory-db`, and `bin/audit-deps --check` self-tests its
+version comparison without needing the database at all. Today's result:
+
+```
+ok         image 0.24.9     RUSTSEC-2019-0014  patched >= 0.21.3
+ok         image 0.24.9     RUSTSEC-2020-0073  patched >= 0.23.12  [unsound]
+ok         nalgebra 0.32.6  RUSTSEC-2021-0070  patched >= 0.27.1
+unpatched  paste 1.0.15     RUSTSEC-2024-0436  [unmaintained]
+41 locked crates checked, 0 vulnerable
+```
+
+`paste` is a transitive dependency of `nalgebra`'s macros; the advisory is
+informational (the crate is unmaintained, not vulnerable) and has no patched
+version to move to.
+
+This exists because `cargo audit` cannot run here, and the failure is worth
+recording so nobody spends the afternoon again:
+
+| Version | What happens |
+|---|---|
+| `cargo-audit@0.21.2` | won't build: "requires rustc 1.81.0 or newer" |
+| `cargo-audit@0.21.1` | installs, then dies loading the DB: "unsupported CVSS version: 4.0" |
+| `cargo-audit@0.18.3` | same CVSS 4.0 parse failure |
+| `cargo-machete` | won't build: needs the `edition2024` Cargo feature |
+
+0.21.1 is what is installed in `~/.cargo/bin` — it is not usable, because
+advisories added in 2026 (RUSTSEC-2026-0245 among them) carry `CVSS:4.0`
+vectors and its parser only knows 3.x. Nothing older parses them either.
+Re-try `cargo audit` when the toolchain moves past 1.75; until then
+`bin/audit-deps` is the standing substitute.
+
+`cargo-deny` and `cargo-nextest` are still not installed: same toolchain
+ceiling, and with one crate and four direct dependencies neither would tell us
+something `cargo tree`, the gate above, and this audit do not.

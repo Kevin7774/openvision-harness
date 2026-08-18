@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Check every locked crate against the RustSec advisory database.
+
+Why not `cargo audit`: the newest cargo-audit that builds on this machine's
+rustc 1.75 is 0.21.1, and it refuses to load today's advisory-db --- some
+entries carry `cvss = "CVSS:4.0/..."` and its parser only knows 3.x. So it
+installs, then dies before reading a single crate. This does the one thing we
+actually want from it, against the same database clone.
+
+    bin/audit-deps            # needs ~/.cargo/advisory-db (cargo-audit clones it)
+    bin/audit-deps --check    # self-test, no database needed
+
+Exit code 1 if a locked version is below an advisory's patched range.
+"""
+import glob
+import os
+import re
+import sys
+
+DB = os.path.expanduser("~/.cargo/advisory-db/crates")
+
+
+def locked(lock_text):
+    """name -> version for every [[package]] in a Cargo.lock."""
+    return dict(re.findall(
+        r'\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"', lock_text))
+
+
+def parts(version):
+    """0.24.9 -> (0, 24, 9). Pre-release suffixes are dropped, which is fine
+    here: we only ever compare against a patched range like ">= 0.23.12"."""
+    return tuple(int(p) for p in re.findall(r"\d+", version)[:3])
+
+
+def below(version, requirement):
+    """True if `version` is outside `requirement`, i.e. still vulnerable.
+    Only `>=` bounds appear in practice; anything else is reported, not judged."""
+    m = re.match(r">=\s*([0-9.]+)", requirement.strip().strip('"'))
+    return parts(version) < parts(m.group(1)) if m else None
+
+
+def advisories(name):
+    for path in sorted(glob.glob(os.path.join(DB, name, "*.md"))):
+        text = open(path).read()
+        patched = re.search(r"patched\s*=\s*\[([^\]]*)\]", text)
+        yield (os.path.basename(path)[:-3],
+               [r.strip().strip('"') for r in (patched.group(1) if patched else "").split(",") if r.strip()],
+               (re.search(r'(?m)^informational\s*=\s*"([^"]+)"', text) or ["", ""])[1])
+
+
+def main():
+    if not os.path.isdir(DB):
+        sys.exit(f"no advisory database at {DB}\n"
+                 "get one with: git clone --depth 1 "
+                 "https://github.com/RustSec/advisory-db ~/.cargo/advisory-db")
+    pkgs = locked(open("Cargo.lock").read())
+    bad = 0
+    for name, version in sorted(pkgs.items()):
+        for ident, patched, info in advisories(name):
+            verdict = "unpatched" if not patched else \
+                      "VULNERABLE" if all(below(version, r) for r in patched) else "ok"
+            if verdict == "VULNERABLE":
+                bad += 1
+            print(f"{verdict:<10} {name} {version}  {ident}"
+                  f"{'  patched ' + ', '.join(patched) if patched else ''}"
+                  f"{'  [' + info + ']' if info else ''}")
+    print(f"{len(pkgs)} locked crates checked, {bad} vulnerable")
+    return 1 if bad else 0
+
+
+def check():
+    assert locked('[[package]]\nname = "image"\nversion = "0.24.9"\n') == {"image": "0.24.9"}
+    assert below("0.23.11", ">= 0.23.12") is True
+    assert below("0.24.9", ">= 0.23.12") is False
+    # 0.9 vs 0.10 must not compare as strings, or "0.9" > "0.10"
+    assert below("0.9.0", ">= 0.10.0") is True
+    assert below("1.0.0", "^1.2") is None, "unknown operators must abstain, not pass"
+    print("self-check OK")
+
+
+if __name__ == "__main__":
+    sys.exit(check() if "--check" in sys.argv else main())
