@@ -1,9 +1,9 @@
 # Perception
 
-`crates/xr1-vision/src/perception.rs`. Input: one observation directory written
-by `py/vista_observe.py`. Output: one JSON document on stdout. No state, no
-hardware, no network --- so any observation can be re-planned later and the two
-answers compared.
+`crates/xr1-vision/src/perception/`. Input: one observation directory written by
+`py/vista_observe.py` plus a validated semantic proposal. Output: typed
+`ObjectGeometry`. It has no hardware or planning dependency, so any observation
+can be reprocessed and compared later.
 
 ## Pipeline
 
@@ -25,14 +25,14 @@ answers compared.
 6. **Fit** a median centre, discard outliers, and fit an oriented bounding box
    whose two horizontal axes are forced horizontal. A block standing on end must
    not yield a tilted footprint (this is a test).
-7. **Plan** grasps: for each near-horizontal object axis, both directions, and a
-   tilt sweep of 0, ±30, ±60, ±90, ±120, ±150, 180°, ask the kinematics for a
-   wrist orientation whose closing axis is top-down and aligned. Then for three
-   approach clearances (60, 80, 100 mm) solve approach IK, seed the grasp IK from
-   it, and keep the pair with the best combined score that also passes the
-   grasp-geometry check.
+Planning begins only after this module returns. `planning/search.rs` covers the
+complete roll circle at 30° intervals, keeps the two best feasible orientation
+families, refines each within ±6° at 2° intervals, and evaluates three approach
+clearances (60, 80 and 100 mm). Closing axis and roll stay separate in the
+candidate contract.
 
-The output carries the diagnostics (`orientation_candidates`,
+The plan output carries the diagnostics (`coarse_orientation_candidates`,
+`fine_orientation_candidates`,
 `approach_ik_count`, `grasp_ik_count`, `geometry_feasible_count`) because "no
 plan" has several very different causes and they need to be distinguishable
 without a rebuild.
@@ -43,7 +43,7 @@ once spent an afternoon reconciling numbers taken 67 mm apart.
 
 ## The colour mask
 
-`yellow_component_mask()` is the one piece of this code base that is pure
+`yellow::component_mask()` is the one piece of this code base that is pure
 calibration, and it is deliberately not a tunable config value --- every
 threshold has a measured frame behind it in a comment.
 
@@ -72,14 +72,13 @@ Deciding per *component* rather than per *pixel* is the load-bearing choice. A
 per-pixel rule cannot express "these 4050 pixels are two pads plus a block"; an
 aggregate over a component can.
 
-The three tests in that file assert exactly these numbers. If you widen a
+The tests in that module assert exactly these numbers. If you widen a
 threshold, they fail, which is the point.
 
 ## Deliberate non-goals
 
-- **No fusion.** A previous version fused ZED, a wrist D405 and tactile shear
-  force. Two of those three sensors do not exist on this robot
-  ([ADR 0001](../decisions/0001-delete-tactile-d405-runtime.md)).
+- **No near-field fusion yet.** D405 and tactile are represented as discovered
+  capabilities, but neither currently supplies frames to this perception path.
 - **No tracking.** One frame in, one plan out. The world may have been changed by
   a human or another session between frames, so continuity would be a lie.
 - **No learned model.** Nothing here loads weights. The block is found by

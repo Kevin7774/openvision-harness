@@ -35,7 +35,7 @@ what it actually looked at.
 
 | Constant | Value | Provenance |
 |---|---|---|
-| `TIP_CENTER_M` | `[-0.0225, 0, 0.0485]` m | **this is the one the code uses** --- `crates/xr1-vision/src/kinematics.rs`, tcp frame, 53.5 mm long |
+| `TIP_CENTER_M` | `[-0.0225, 0, 0.0485]` m | **this is the one the code uses** --- `crates/xr1-vision/src/kinematics/types.rs`, tcp frame, 53.5 mm long |
 | `TCP_TO_TIP` | 0.168 m | operator tape measure (flange to pad centre 230 mm, minus the 62 mm the tcp sits outside the flange, 08-14). ⚠️ **Not in force anywhere.** It disagrees with `TIP_CENTER_M` by 119 mm and it lived in a script that no longer exists. An 8-pose camera measurement puts the residual at tens of mm, not 119 --- so do not paste this number into the code. [ADR 0004](../decisions/0004-tool-frame-error-is-still-open.md) |
 | `TABLE_TOP` | 0.790 m | upper edge of the band implied by the teleoperated grasp truth (08-14). **0.8108 is void** |
 | `GRASP_TIP_Z` | 0.8001 m | truth sample with `grip=124`, the only one inside the holding band (08-14) |
@@ -65,6 +65,8 @@ table *position* does.
 - **Perception → grasp plan**: `xr1-vision observe` then `xr1-vision plan`.
   The colour mask separates the block from the green cube *and* from the
   gripper's own orange pads (3 tests, thresholds measured off named frames).
+  `plan --proposal FILE` accepts a typed semantic `VisionHarnessProposal`; Rust
+  retains ownership of closing axis, full-circle roll search, IK and ranking.
 - **Rate-limited motion**: `py/astra_arm.py` ramps from the measured pose, caps
   velocity, clamps to the live URDF, and refuses on stale feedback or a busy
   command channel.

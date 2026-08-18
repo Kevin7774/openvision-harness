@@ -1,7 +1,8 @@
 # Kinematics and grasp geometry
 
-`crates/xr1-vision/src/kinematics.rs`. Pure computation over the URDF; it never
-publishes anything.
+`crates/xr1-vision/src/kinematics/`. Pure computation over the URDF; it never
+publishes anything. `model.rs` owns the chain and motion envelope, `ik.rs` owns
+the numerical search, and `grasp.rs` owns contact geometry.
 
 ## The chain
 
@@ -53,7 +54,7 @@ See [ADR 0004](../decisions/0004-tool-frame-error-is-still-open.md).
 ## Position IK
 
 `solve_position_candidates_with_reference(target, seed, reference, orientation_offset)`
-returns every accepted branch ordered by score, so the planner can evaluate
+returns every distinct accepted branch ordered by score, so the planner can evaluate
 compatible approach/grasp pairs instead of committing to one pregrasp branch.
 
 The target *rotation* is expressed as an offset from a reference pose rather than
@@ -64,7 +65,9 @@ already known to be reachable keeps the solver in a sane basin.
 
 Per attempt: damped-least-squares over a numerically differentiated 6-DoF
 Jacobian, steps clamped to 0.08 rad, joints clamped to URDF limits every
-iteration, converged at 4 mm and 0.04 rad, up to 160 iterations. It runs from
+iteration, converged at 4 mm and 0.04 rad, up to 160 iterations. Equivalent
+solutions within 1 mrad per joint are collapsed before the planner expands the
+next layer. It runs from
 `3 + 2N` seeds (current pose, joint-range midpoint, a 0.7/0.3 blend, and that
 blend perturbed ±0.45 rad on each joint in turn) and keeps the best-scoring
 result:

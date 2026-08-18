@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "task": "grasp",
+  "object_id": "yellow_block",
+  "intent": "top_down",
+  "preferred_closing_axis": null,
+  "constraints": {
+    "object_visible": true,
+    "avoid_table_collision": true
+  },
+  "reasoning": "The yellow block is the current measured target.",
+  "prediction": "A top-down candidate should pass IK and contact geometry."
+}

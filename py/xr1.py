@@ -276,7 +276,7 @@ class XR1:
                   f"-0.139 rad lower limit -- expected)")
 
     def home(self, which="both", speed=0.5):
-        return self.robot.home(which)
+        return self.robot.home(which, speed=speed)
 
     def tcp_z(self, side):
         """Hand height in base_link -- the only way to verify a raise happened,

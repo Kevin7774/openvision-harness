@@ -10,7 +10,8 @@ perception and kinematics that decide where to reach, the thin Python layer that
 actually commands the arms, and the evidence ledger that says whether it worked.
 
 ```
-crates/xr1-vision/   Rust: perception, kinematics, experiment journal   <- main line
+crates/xr1-vision/   Rust library + thin CLI: proposal, perception, planning,
+                     kinematics, safety and experiment journal          <- main line
 py/                  Python: the rclpy / hardware boundary              <- see AGENTS.md §language
 ros/rtc_teleop/      C++ ROS 2 nodes (source for the vendor teleop path)
 mac/                 Swift: the external-camera recorder that runs on the Mac
@@ -37,7 +38,8 @@ bin/tf-frames                     # 52 frames, 6 of them zed_*, or something is 
 cargo build --release             # -> target/release/xr1-vision
 export PATH="$PWD/target/release:$PATH"   # the commands below are that binary
 xr1-vision observe                # ZED snapshot + intrinsics + image-time TF
-xr1-vision plan                   # yellow block -> footprint -> grasp IK
+xr1-vision plan                   # default yellow-block semantic proposal -> grasp candidates
+xr1-vision plan --proposal examples/grasp_proposal.json
 xr1-vision fk J1 .. J7            # fingertip-pad FK, for hand-eye work
 xr1-vision sensor-status          # D405 / tactile capability report
 xr1-vision servo-propose --input examples/servo_request.json --state STATE_JSON
@@ -52,8 +54,8 @@ believing any single reading. Several sessions share this one machine.
 | Claim | Evidence |
 |---|---|
 | ZED depth is trustworthy enough to localise the block | independently validated against the teleoperated grasp pose to 2.0 mm |
-| The colour mask separates the block from the green cube *and* from the orange gripper pads | 3 tests in `crates/xr1-vision/src/perception.rs`, thresholds measured off named frames |
-| A named visual-servo proposal cannot bypass the Rust step, freshness, URDF-margin, fingertip-floor or required-sensor gates | unit tests in `visual_servo.rs`, `kinematics.rs` and `safety.rs` |
+| The colour mask separates the block from the green cube *and* from the orange gripper pads | measured regression tests in `crates/xr1-vision/src/perception/` |
+| A named visual-servo proposal cannot bypass the Rust step, freshness, URDF-margin, fingertip-floor or required-sensor gates | unit tests in `visual_servo.rs`, `kinematics/` and `safety.rs` |
 | One grasp succeeded | 2026-08-18, gripper reads 149 closed on the object vs 14 closed on air, and it stayed at 148 after lifting |
 | Motion is rate-limited and clamped to the live URDF | `py/astra_arm.py`, refuses on stale `/joint_states` or a busy command channel |
 
@@ -80,6 +82,7 @@ believing any single reading. Several sessions share this one machine.
 | [`docs/architecture/gripper-g2.md`](docs/architecture/gripper-g2.md) | G2 grippers: Modbus registers, the only grasp signal, bus health |
 | [`docs/architecture/perception.md`](docs/architecture/perception.md) | image → block pose, and why each threshold is that number |
 | [`docs/architecture/kinematics.md`](docs/architecture/kinematics.md) | the tool frame, the IK, the grasp gates |
+| [`docs/architecture/proposals.md`](docs/architecture/proposals.md) | semantic proposal and typed grasp-candidate contracts |
 | [`docs/operations/status.md`](docs/operations/status.md) | **read first**: current constants, what works, ranked blockers |
 | [`docs/operations/runbook.md`](docs/operations/runbook.md) | observe / plan / experiment / record / teleop, and their preconditions |
 | [`docs/operations/pitfalls.md`](docs/operations/pitfalls.md) | 55 failures with their disambiguating evidence. Long on purpose |

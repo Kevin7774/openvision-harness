@@ -48,12 +48,14 @@ damped-least-squares solve and the debug build is minutes slower per call.
 ## Tests
 
 ```bash
-cargo test --workspace          # 3 tests, all in perception
+cargo test --workspace
+python3 py/test_motion_adapter.py
 ```
 
-They are small on purpose and none of them mock the robot. Each one encodes a
-threshold that was **measured off a named frame**, so if someone retunes the mask
-by feel, a test says which physical observation they just broke:
+The suite contains measured perception regressions plus pure contract tests for
+proposal validation, URDF parsing, IK branch deduplication, roll refinement,
+visual-servo algebra, safety reports and execution-plan selection. None of them
+pretends to unit-test hardware.
 
 | Test | What breaks it |
 |---|---|
@@ -61,11 +63,9 @@ by feel, a test says which physical observation they just broke:
 | `orange_pads_are_not_yellow_but_the_block_still_is` | the gripper's own pads becoming grasp targets (this happened) |
 | `footprint_axes_stay_horizontal_for_a_block_standing_on_end` | letting the oriented box tilt, which makes the closing-axis solve meaningless |
 
-The kinematics and the plan path have no unit tests, and pretending otherwise
-would be worse than the gap: their inputs are a live URDF and a live TF tree,
-and their only meaningful oracle is the robot. What guards them instead is
-`xr1-vision plan`, which is a dry run by default --- it prints ranked candidates
-and moves nothing. That is the check to run after touching either file.
+The final system check remains `xr1-vision plan` against a named saved frame. It
+exercises the installed URDF and full candidate pipeline without moving hardware;
+record its wall time and candidate counts when changing the search.
 
 ## Dependency audit
 

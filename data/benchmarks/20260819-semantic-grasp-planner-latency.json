@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-08-19T02:32:07+08:00",
+  "host": "tegra-ubuntu",
+  "motion_executed": false,
+  "command": "target/release/xr1-vision plan --proposal examples/grasp_proposal.json",
+  "binary_profile": "release",
+  "observation_frame_id": "20260818-170043-862454095-529385",
+  "baseline": {
+    "source": "data/benchmarks/20260819-joint-ik-latency.json",
+    "wall_s": 12.874,
+    "search": "48 discrete orientations, no local roll refinement"
+  },
+  "refactor_measurements": [
+    {
+      "stage": "unbudgeted_coarse_to_fine",
+      "wall_s": 19.316,
+      "user_s": 18.681,
+      "sys_s": 0.053,
+      "coarse_orientations_per_clearance": 48,
+      "fine_orientations_per_clearance": 24,
+      "result": "rejected for latency; branch expansion was excessive"
+    },
+    {
+      "stage": "budgeted_coarse_to_fine",
+      "wall_s": 11.528,
+      "user_s": 11.116,
+      "sys_s": 0.087,
+      "coarse_orientations_per_clearance": 48,
+      "fine_orientations_per_clearance": 12,
+      "max_approach_branches_per_orientation": 4,
+      "wall_delta_vs_baseline_percent": -10.45
+    }
+  ],
+  "result": {
+    "all_three_clearances_ik_feasible": true,
+    "all_three_clearances_grasp_feasible": true,
+    "best_clearance_m": 0.06,
+    "best_roll_rad": 0.6283185307179586,
+    "best_score": 1.5024402730738051,
+    "full_roll_domain_preserved": true,
+    "local_roll_resolution_deg": 2
+  }
+}

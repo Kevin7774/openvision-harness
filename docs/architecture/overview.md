@@ -18,7 +18,7 @@ Two consequences shape everything else:
 ## Layers
 
 ```
-Agent      you / an LLM          pick the next experiment, write the prediction
+Agent      you / an LLM          emit a semantic VisionHarnessProposal
   |
 Planner    xr1-vision plan       image -> object pose -> grasp candidates -> IK
   |
@@ -37,24 +37,33 @@ above it for permission.
 
 ## The Rust side: `crates/xr1-vision`
 
-One binary with small modules split by ownership, no framework.
+One reusable library with a thin binary entry point. Module dependencies point
+from orchestration toward domain modules; perception does not call planning and
+planning does not publish to hardware.
 
 | Module | Responsibility |
 |---|---|
-| `perception.rs` | read one observation, find the block, produce ranked grasp candidates as JSON |
-| `kinematics.rs` | parse the live URDF chain, forward kinematics to the gripper pads, position IK, grasp-geometry feasibility |
+| `proposal.rs` | typed semantic task intent; no Cartesian or joint pose fields |
+| `perception/` | read one observation and produce measured object geometry |
+| `planning/` | full-circle coarse roll search, top-K local refinement, typed `GraspCandidate` ranking |
+| `kinematics/model.rs` | URDF chain, FK, gripper-pad geometry and shared motion envelope |
+| `kinematics/ik.rs` | multi-seed numerical IK and duplicate-branch removal |
+| `kinematics/grasp.rs` | contact and closing-axis feasibility |
 | `visual_servo.rs` | turn a named 3×3 image-Jacobian measurement into a bounded joint-space proposal |
 | `safety.rs` | bind a proposal to fresh evidence and apply deterministic step, URDF margin, floor-path and sensor-capability gates |
 | `observation.rs` | shared typed observation/joint/TF contract used by perception and safety |
 | `hardware.rs` | read-only D405 and tactile capability discovery; no task policy |
-| `main.rs` | argument parsing, shelling out to the two Python entry points, and the experiment journal |
+| `cli.rs` | command dispatch and stable JSON boundaries |
+| `runtime.rs` | workspace paths and the ROS-initialised Python process boundary |
+| `experiment.rs` | experiment lifecycle and report persistence |
+| `main.rs` | process exit code only |
 
 Commands:
 
 ```
 xr1-vision preflight                       py/xr1.py pose + py/xr1_cam.py doctor
 xr1-vision observe                         py/vista_observe.py -> data/vista_runs/<run>/latest.json
-xr1-vision plan                            perception::plan on the newest observation
+xr1-vision plan [--proposal FILE]          semantic proposal -> object geometry -> candidates
 xr1-vision fk J1 .. JN                     pad-inner points, midpoint and tool rotation
 xr1-vision sensor-status                   read-only D405 / tactile capability state
 xr1-vision servo-propose --input I --state S
@@ -74,6 +83,9 @@ is labelled `online_plan_dry_run` and executing it is a separate, human decision
 the Rust checks passed. `execution_authorized` remains false until the hardware
 adapter re-checks live joint freshness and command-channel idleness.
 
+The semantic proposal and typed candidate schemas are specified in
+[`proposals.md`](./proposals.md).
+
 ## The Python side: `py/`
 
 | File | Role |
@@ -83,7 +95,7 @@ adapter re-checks live joint freshness and command-channel idleness.
 | `vista_observe.py` | read-only ZED snapshot: RGB, aligned depth, intrinsics, image-time TF |
 | `xr1_cam.py` | drive the external recorder on the Mac at 192.168.123.138 |
 | `pad_offset_measure.py` | measure the gripper-pad pixel offset against `xr1-vision fk` |
-| `motion_adapter.py` | joint-name / sign mapping for the vendor motion interface |
+| `motion_adapter.py` | validate a typed Rust plan, select a fully feasible candidate and execute one phase |
 | `mac/` | the recorder itself (Swift), installed on the Mac |
 
 `astra_arm.py` is the only thing standing between a bad number and the hardware.

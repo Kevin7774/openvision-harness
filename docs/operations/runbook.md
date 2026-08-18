@@ -29,6 +29,7 @@ export SUDO_ASKPASS=/tmp/askpass.sh    # then: sudo -A <cmd>
 ```bash
 xr1-vision observe        # -> data/vista_runs/yellow-block-harness/latest.json
 xr1-vision plan           # dry run; prints ranked candidates as JSON
+xr1-vision plan --proposal examples/grasp_proposal.json
 ```
 
 `plan` moves nothing. Before believing its numbers, **open the actual image**.
