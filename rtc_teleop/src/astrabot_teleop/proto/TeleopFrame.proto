@@ -1,0 +1,203 @@
+syntax = "proto3";
+
+// Frame header containing metadata and timing information
+message FrameHeader {
+  // Timestamp in milliseconds since epoch
+  int64 timestamp_ms = 1;
+
+  // CRC32 checksum for data integrity verification
+  // Calculated from the serialized DataBody bytes
+  uint32 crc32_checksum = 3;
+
+  // Frame index: monotonically increasing counter for frame sequence tracking
+  // Used for detecting dropped frames, synchronization, and debugging
+  // Increments automatically each time GetByteData() is called
+  uint64 frame_index = 4;
+
+  // Data quality flags
+  bool pose_valid_right = 5;
+  bool pose_valid_left = 6;
+  bool pose_valid_head = 7;
+
+  // OpenXR hand skeleton tracking validity (26 joints per hand)
+  bool hand_skeleton_valid_right = 8;
+  bool hand_skeleton_valid_left = 9;
+}
+
+// Teleop data body containing all teleoperation data
+message DataBody {
+  // Action poses for each component (right, left, head)
+  PoseAction action_right = 1;
+  PoseAction action_left = 2;
+  PoseAction action_head = 3;
+
+  // Button states
+  ButtonStates buttons = 4;
+
+  // Analog axis values
+  AxisValues axes = 5;
+
+  // Safety and status flags
+  SafetyFlags safety = 6;
+
+  // Calibration poses
+  CalibrationPoses calibration_poses = 7;
+
+  // Function controls
+  FunctionControls functions = 8;
+
+  // Signal mode
+  int32 signal_mode = 9; // 0: normal, 1: Function
+
+  // OpenXR hand skeleton joint positions (tracking space), one per hand
+  OpenXRHandSkeleton hand_skeleton_right = 10;
+  OpenXRHandSkeleton hand_skeleton_left = 11;
+}
+
+// TeleopFrame message containing all teleoperation data
+message TeleopFrame {
+  // Frame header with metadata
+  FrameHeader header = 1;
+
+  // Teleop data body
+  DataBody data_body = 2;
+}
+
+// Pose action containing position and rotation
+message PoseAction {
+  float pos_x = 1;
+  float pos_y = 2;
+  float pos_z = 3;
+  float rot_x = 4;
+  float rot_y = 5;
+  float rot_z = 6;
+  float rot_w = 7;
+}
+
+// 3D position (meters), tracking-space coordinates
+message Vec3f {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+// OpenXR hand skeleton (Meta Quest / OpenXR hand tracking layout).
+// joints[i] is joint index i in the OpenXR hand skeleton (0..25, 26 joints total).
+// See: https://developers.meta.com/horizon/documentation/unity/unity-handtracking-interactions/
+//
+// Index | Joint
+// ------|-----
+//   0   | Palm
+//   1   | Wrist
+//   2   | Thumb metacarpal
+//   3   | Thumb proximal
+//   4   | Thumb distal
+//   5   | Thumb tip
+//   6   | Index metacarpal
+//   7   | Index proximal
+//   8   | Index intermediate
+//   9   | Index distal
+//  10   | Index tip
+//  11   | Middle metacarpal
+//  12   | Middle proximal
+//  13   | Middle intermediate
+//  14   | Middle distal
+//  15   | Middle tip
+//  16   | Ring metacarpal
+//  17   | Ring proximal
+//  18   | Ring intermediate
+//  19   | Ring distal
+//  20   | Ring tip
+//  21   | Little metacarpal
+//  22   | Little proximal
+//  23   | Little intermediate
+//  24   | Little distal
+//  25   | Little tip
+message OpenXRHandSkeleton {
+  // Expected length: 26. Shorter arrays mean trailing joints are unknown.
+  repeated Vec3f joints = 1;
+}
+
+// OpenXR hand joint identifiers (matches joint index in joints[]).
+enum OpenXRHandJoint {
+  XRHAND_PALM = 0;
+  XRHAND_WRIST = 1;
+  XRHAND_THUMB_METACARPAL = 2;
+  XRHAND_THUMB_PROXIMAL = 3;
+  XRHAND_THUMB_DISTAL = 4;
+  XRHAND_THUMB_TIP = 5;
+  XRHAND_INDEX_METACARPAL = 6;
+  XRHAND_INDEX_PROXIMAL = 7;
+  XRHAND_INDEX_INTERMEDIATE = 8;
+  XRHAND_INDEX_DISTAL = 9;
+  XRHAND_INDEX_TIP = 10;
+  XRHAND_MIDDLE_METACARPAL = 11;
+  XRHAND_MIDDLE_PROXIMAL = 12;
+  XRHAND_MIDDLE_INTERMEDIATE = 13;
+  XRHAND_MIDDLE_DISTAL = 14;
+  XRHAND_MIDDLE_TIP = 15;
+  XRHAND_RING_METACARPAL = 16;
+  XRHAND_RING_PROXIMAL = 17;
+  XRHAND_RING_INTERMEDIATE = 18;
+  XRHAND_RING_DISTAL = 19;
+  XRHAND_RING_TIP = 20;
+  XRHAND_LITTLE_METACARPAL = 21;
+  XRHAND_LITTLE_PROXIMAL = 22;
+  XRHAND_LITTLE_INTERMEDIATE = 23;
+  XRHAND_LITTLE_DISTAL = 24;
+  XRHAND_LITTLE_TIP = 25;
+  XRHAND_MAX = 26;
+}
+
+// Button states for all controllers
+message ButtonStates {
+  // Main buttons
+  bool button_a = 1;
+  bool button_b = 2;
+  bool button_x = 3;
+  bool button_y = 4;
+  bool button_js_right = 5;
+  bool button_js_left = 6;
+
+  // Touch states
+  bool button_a_touch = 7;
+  bool button_b_touch = 8;
+  bool button_x_touch = 9;
+  bool button_y_touch = 10;
+  bool button_js_right_touch = 11;
+  bool button_js_left_touch = 12;
+  bool button_trig_right_touch = 13;
+  bool button_trig_left_touch = 14;
+}
+
+// Analog axis values
+message AxisValues {
+  float axis_trig_right = 1;
+  float axis_trig_left = 2;
+  float axis_grip_right = 3;
+  float axis_grip_left = 4;
+  float axis_js_right_x = 5;
+  float axis_js_right_y = 6;
+  float axis_js_left_x = 7;
+  float axis_js_left_y = 8;
+}
+
+// Safety and status flags
+message SafetyFlags {
+  bool is_safe_right = 1;
+  bool is_safe_left = 2;
+  bool is_active_head = 3;
+}
+
+// Calibration poses for each component
+message CalibrationPoses {
+  PoseAction pose_to_calibration_base_right = 1;
+  PoseAction pose_to_calibration_base_left = 2;
+  PoseAction pose_to_calibration_base_head = 3;
+}
+
+// Function controls
+message FunctionControls {
+  int32 function_js_dpad_left = 1;
+  int32 function_js_dpad_right = 2;
+}

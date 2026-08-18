@@ -1,0 +1,49 @@
+flow: astra_data_collection
+name: astrabot_data_collection
+
+robot:
+  eye_zed:
+    serial: "<YOUR_ZED_SERIAL>"
+    stream: true
+  webcams:
+    left_wrist:
+      device: "/dev/l_arm_cam"
+      stream: true
+    right_wrist:
+      device: "/dev/r_arm_cam"
+      stream: true
+    chest:
+      device: "/dev/f_chest_cam"
+      stream: true
+      resolution: [1600, 1200]
+  robot_type: "evt11"
+  robotd:
+    server_ip: "<YOUR_ROBOTD_SERVER_IP>"
+    room_name: "astrabot-room"
+    identity: "ASTRABOT"
+    # use_byte: false
+
+simple_planning:
+  skill_config: "<YOUR_SKILL_CONFIG_PATH>"
+  skill_library_path: "<YOUR_SKILL_LIBRARY_PATH>"
+
+data_buffer:
+  robot_type: astrabot
+  mode: data_collection
+
+recorder:
+  robot_type: astrabot
+  skill_config_path: "<YOUR_SKILL_CONFIG_PATH>"
+  skill_library_path: "<YOUR_SKILL_LIBRARY_PATH>"
+  collector_name: "<YOUR_NAME>"
+  fps: 30
+  video_encode_method: cv2
+  send_instruction: true
+  use_depth: false
+  task_id: "astrabot:my_task"
+  live_upload: true
+  bucket_name: bj-data
+  lakefs_endpoint_url: "<YOUR_LAKEFS_ENDPOINT_URL>"
+  lakefs_access_key_id: "<YOUR_LAKEFS_ACCESS_KEY_ID>"
+  lakefs_secret_access_key: "<YOUR_LAKEFS_SECRET_ACCESS_KEY>"
+  # root: lakefs://cn-dataset/<branch>/<remote_path>

@@ -1,0 +1,58 @@
+astrabot_teleop:
+  ros__parameters:
+    # 默认配置只验证进程和 ROS 接口，不开放 shadow/legacy_mpc/cpp 控制链路。
+    backend: disabled
+    device_id: CHANGE_ME_BEFORE_SHADOW
+    resource_id: thor
+    rtc_data_topic: /astrabot/rtc/data_channel/received
+    rtc_peer_event_topic: /astrabot/rtc/peer_event
+    authorize_service: /astrabot/teleop/authorize_channel
+    rtc_close_service: /astrabot/rtc/close_peer
+    shadow_command_topic: /astrabot/teleop/shadow_command
+    production_command_topic: /astrabot/teleop/command
+    # legacy_mpc 仅作为现有 MPC JSON 链路的过渡兼容后端，不支持底盘、头部或灵巧手。
+    legacy_reference_pose_topic: /reference/pose
+    legacy_control_name: wbmpc_remote_ctrl
+    legacy_left_gripper_topic: /rm_left/rm_driver/teleop_gripper_float
+    legacy_right_gripper_topic: /rm_right/rm_driver/teleop_gripper_float
+    status_topic: /astrabot/teleop/session_status
+    run_context_topic: /astrabot/data_collection/run_context
+    acquire_owner_service: /astrabot/arbitration/acquire_owner
+    renew_owner_service: /astrabot/arbitration/renew_owner
+    release_owner_service: /astrabot/arbitration/release_owner
+    report_teleop_status_service: /astrabot/data_collection/report_teleop_status
+    # /ee/pose 约定 poses[0]=left、poses[1]=right，且 header.frame_id 必须为 base_link。
+    robot_ee_pose_topic: /ee/pose
+    robot_base_frame: base_link
+    # 切换到 shadow/legacy_mpc/cpp 时必须显式配置同长度的 grant_key_ids 和 grant_public_keys。
+    max_frame_bytes: 16384
+    max_frame_age_ms: 100
+    max_future_skew_ms: 1000
+    watchdog_timeout_ms: 120
+    command_ttl_ms: 100
+    process_period_ms: 2
+    status_period_ms: 1000
+    owner_ttl_ms: 150
+    owner_renew_period_ms: 50
+    owner_service_timeout_ms: 40
+    status_report_service_timeout_ms: 100
+    status_report_retry_period_ms: 1000
+    status_report_poll_period_ms: 10
+    robot_pose_max_age_ms: 100
+    deadman_grip_threshold: 0.5
+    # 与 legacy Quest 一致：扳机捏到底再松开，切换开/合锁存状态。
+    gripper_toggle_high_threshold: 0.9
+    gripper_toggle_low_threshold: 0.1
+    gripper_binary_threshold: 0.4
+    quaternion_norm_tolerance: 0.05
+    workspace_min_x: -5.0
+    workspace_max_x: 5.0
+    workspace_min_y: -5.0
+    workspace_max_y: 5.0
+    workspace_min_z: -5.0
+    workspace_max_z: 5.0
+    max_position_step_m: 0.25
+    max_position_velocity_mps: 1.0
+    max_position_acceleration_mps2: 5.0
+    max_chassis_linear_mps: 0.3
+    max_chassis_angular_rps: 0.5

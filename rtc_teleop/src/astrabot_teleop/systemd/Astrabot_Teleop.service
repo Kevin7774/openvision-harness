@@ -1,0 +1,15 @@
+[Unit]
+Description=Astrabot C++ Teleop shadow runtime
+After=network-online.target Astrabot_Rtc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/ros/astrabot/bin/ros2 launch astrabot_teleop teleop.launch.py config_file:=/etc/astrabot/teleop.yaml
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

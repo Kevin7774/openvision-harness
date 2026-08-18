@@ -1,0 +1,23 @@
+# 所启动的程序模块类型：Init, Sensors, Controller, MPC, Location, Navigation, Mapping, Others
+MODEL_TYPE="Init"  
+
+# 是否在docker中运行
+RUN_IN_DOCKER=false
+
+# 所使用的docker名称
+DOCKER_CONTAINER_NAME="ccu_docker"
+
+# 设置调度优先级为0到19, 0 最高 19 最低
+PRIORITY=2
+
+# 在开始时运行一次，一般用于设置运行环境，或launch ROS2 程序
+COMMAND_RUN_ONCE_IN_BEGIN=(
+    'source /opt/ros/jazzy/setup.bash'
+    'source /opt/ros/astrabot/setup.bash'
+    'ros2 launch orbbec_camera multi_camera.launch.py'
+)
+
+# 循环运行某些代码
+COMMAND_RUN_IN_LOOP=(
+)
+

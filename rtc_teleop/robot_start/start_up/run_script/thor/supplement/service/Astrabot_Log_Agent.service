@@ -1,0 +1,21 @@
+[Unit]
+Description=AstraBot THOR Log Agent
+Requires=Astrabot_File_Transfer.service
+After=network-online.target time-sync.target Astrabot_File_Transfer.service
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+Nice=10
+User=astrabot
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/ros/start_up/run
+ExecStart=/opt/ros/start_up/run/Astrabot_Log_Agent.sh
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

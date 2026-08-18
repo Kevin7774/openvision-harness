@@ -1,0 +1,18 @@
+[Unit]
+Description=Astrabot LiveKit Media Server
+After=network-online.target
+Wants=network-online.target
+PartOf=Astrabot_Data_Collection.service
+
+[Service]
+Type=simple
+User=astrabot
+WorkingDirectory=/home/astrabot/deploy
+EnvironmentFile=-/home/astrabot/deploy/livekit.env
+ExecStart=/opt/ros/start_up/run/start_livekit.sh
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

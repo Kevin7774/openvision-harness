@@ -1,0 +1,28 @@
+[Unit]
+Description=Astrabot C++ Teleop runtime
+Requires=Astrabot_Rtc.service
+# Controller/Data Collection 由整机启动脚本生成，并排序在 multi-user.target 之后。
+# Teleop 只硬依赖 RTC；其余 ROS 2 服务不可用时按 fail-closed 和重试语义处理。
+After=network-online.target time-sync.target Astrabot_Rtc.service
+Wants=network-online.target time-sync.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=astrabot
+WorkingDirectory=/opt/ros/start_up/run
+Environment=ASTRABOT_TELEOP_CONFIG=/etc/astrabot/teleop.yaml
+Environment=ASTRABOT_ROS_SETUP=/opt/ros/astrabot/setup.bash
+Environment=ASTRABOT_ROS_CONFIG=/opt/ros/start_up/config/ros_config.sh
+EnvironmentFile=-/etc/astrabot/rtc-teleop.env
+ExecStart=/bin/bash /opt/ros/start_up/run/start-astrabot-teleop.sh
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=30
+TimeoutStopSec=15
+KillSignal=SIGINT
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

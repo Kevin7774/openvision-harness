@@ -1,0 +1,14 @@
+/**:
+  ros__parameters:
+    general:
+      # THOR 上的 ZED 2i 在 HD1080@30 会报告分辨率不可用；HD720@15 已通过真机验证。
+      grab_resolution: HD720
+      grab_frame_rate: 15
+      pub_frame_rate: 15.0
+      # 当前相机在线自标定会误判 POTENTIAL CALIBRATION ISSUE 并关闭设备。
+      # 这里只跳过启动时自标定，不修改设备内保存的标定参数。
+      self_calib: false
+    video:
+      # RTC 直接订阅左右目校正图像；不额外发布 raw 图像，避免无谓带宽和内存开销。
+      publish_left_right: true
+      publish_raw: false

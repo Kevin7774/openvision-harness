@@ -1,0 +1,8 @@
+/.colcon/
+/build/
+/install/
+/log/
+/.cache/
+compile_commands.json
+*.swp
+*.log

@@ -1,0 +1,13 @@
+MODEL_TYPE="Init"
+RUN_IN_DOCKER=false
+DOCKER_CONTAINER_NAME="ecu_docker"
+PRIORITY=5
+
+COMMAND_RUN_ONCE_IN_BEGIN=(
+    'source /opt/ros/jazzy/setup.bash'
+    'source /opt/ros/astrabot/setup.bash'
+    'ros2 launch astrabot_diagnostics diagnostics.launch.py board_config:=/etc/astrabot/board.yaml'
+)
+
+COMMAND_RUN_IN_LOOP=(
+)

@@ -1,0 +1,61 @@
+topics:
+  gateway_command: /astrabot_gateway/webrtc_signal/cmd
+  gateway_report: /astrabot_gateway/webrtc_signal/report
+  peer_event: /astrabot/rtc/peer_event
+  data_received: /astrabot/rtc/data_channel/received
+  authorize_channel_service: /astrabot/teleop/authorize_channel
+  close_peer_service: /astrabot/rtc/close_peer
+  diagnostics: /diagnostics
+
+runtime:
+  # 第一版最多一个 Quest 和一个 WebOps viewer。
+  max_viewers: 2
+  max_peers: 4
+  max_data_channels: 8
+  # 这是硬上限，配置不得超过 16384。
+  max_payload_bytes: 16384
+  dispatch_period_ms: 1
+  authorization_timeout_ms: 200
+  diagnostics_period_ms: 1000
+
+signaling:
+  # Gateway 已有更严格 contract；RTC 仍保留独立防御边界。
+  max_payload_bytes: 65536
+
+transport:
+  # 生产镜像启用 ASTRABOT_RTC_ENABLE_LIBDATACHANNEL_BACKEND 后可改为 libdatachannel。
+  # 默认继续 fail closed，避免未完成 Quest/HIL 验收时自动开放 RTC。
+  backend: disabled
+  # THOR 部署时填写实际业务网卡地址，避免 libjuice 误选 l4tbr0/docker0。
+  bind_address: ""
+  # DataChannel SDK 待发送数据超过该值时拒绝新 payload，不做无界排队。
+  max_buffered_amount_bytes: 65536
+  # 单个 H264 Track 的 SDK 待发送字节上限；WebOps 超限时直接丢帧，Quest/Teleop peer 始终优先发送。
+  max_media_buffered_amount_bytes: 2097152
+
+media:
+  # 只有真实 media transport 可用时才能开启；开启后任一 track 的硬件 encoder 启动失败会阻止节点启动。
+  enabled: false
+  # 兼容既有 key；真实语义是 transport 总媒体 peer admission 上限，固定 purpose 配额为 1 Teleop + 1 video。
+  max_encoded_subscribers: 2
+  # 生产默认只尝试 h264_nvenc，不会隐式回退到 libx264 等软件 encoder。
+  encoder_name: h264_nvenc
+  require_hardware: true
+  output_width: 640
+  output_height: 480
+  # 先尝试 60 fps；同一硬件 encoder 无法打开时，只允许降到 30 fps 再试一次。
+  frame_rate: 60
+  fallback_frame_rate: 30
+  bitrate_bps: 4000000
+  gop_size_frames: 60
+  max_encoded_frame_bytes: 2097152
+  # FFmpeg/NVENC 内部 surface 上限；ROS 输入和 worker mailbox 仍固定为容量 1。
+  max_encoder_surfaces: 2
+  pixel_format: nv12
+  preset: p1
+  tune: ull
+  profile: baseline
+  level: 3.1
+  track_ids: left_eye,right_eye
+  image_topics: /astrabot/data_sources/image/left_eye,/astrabot/data_sources/image/right_eye
+  camera_info_topics: /astrabot/data_sources/camera_info/left_eye,/astrabot/data_sources/camera_info/right_eye

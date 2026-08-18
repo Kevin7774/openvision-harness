@@ -1,0 +1,16 @@
+# Rust
+target/
+
+# colcon / ROS 2 build products (regenerable from src/)
+build/
+install/
+log/
+libdatachannel-install/
+__pycache__/
+*.pyc
+
+# Evidence ledgers: large binary capture data, kept on disk, not in git
+data/experiments/
+data/vista_runs/
+data/snapshots/
+data/logs/

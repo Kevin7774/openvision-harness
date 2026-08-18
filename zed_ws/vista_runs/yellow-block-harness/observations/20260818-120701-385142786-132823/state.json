@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "run_id": "yellow-block-harness",
+  "frame_id": "20260818-120701-385142786-132823",
+  "sensor_stamp_ns": 1787026021282802322,
+  "received_at_ns": 1787026021385142786,
+  "rgb_depth_delta_ms": 0.0,
+  "clock_offset_ms": 102.340464,
+  "rgb": {
+    "topic": "/zed/zed_node/rgb/color/rect/image",
+    "frame_id": "zed_left_camera_frame_optical",
+    "width": 960,
+    "height": 540,
+    "source_encoding": "bgra8",
+    "stored_encoding": "png",
+    "source_step": 3840
+  },
+  "depth": {
+    "topic": "/zed/zed_node/depth/depth_registered",
+    "frame_id": "zed_left_camera_frame_optical",
+    "width": 960,
+    "height": 540,
+    "source_encoding": "32FC1",
+    "stored_dtype": "float32",
+    "unit": "m",
+    "source_step": 3840,
+    "statistics": {
+      "unit": "m",
+      "valid_ratio": 0.880066,
+      "valid_pixels": 456226,
+      "min_m": 0.323959,
+      "median_m": 0.67456,
+      "p95_m": 1.601856,
+      "max_m": 1.949865
+    }
+  },
+  "joint_state": {
+    "topic": "/joint_states",
+    "sensor_stamp_ns": 1787026021391351375,
+    "received_at_ns": 1787026021392581498,
+    "positions_rad": {
+      "head_pitch_joint": 0.680678427,
+      "head_yaw_joint": 0.0,
+      "left_arm_1_joint": 0.0,
+      "left_arm_2_joint": 0.0,
+      "left_arm_3_joint": 1.5039027332212168e-05,
+      "left_arm_4_joint": -9.963355607590562e-05,
+      "left_arm_5_joint": 2.4438419414844776e-05,
+      "left_arm_6_joint": -3.037585718585428e-05,
+      "left_arm_7_joint": -1.1390946444695356e-05,
+      "right_arm_1_joint": -1.453181664039788,
+      "right_arm_2_joint": -2.582730988365687,
+      "right_arm_3_joint": 1.4247072152897877,
+      "right_arm_4_joint": -0.7197546889707587,
+      "right_arm_5_joint": 0.8132560816519548,
+      "right_arm_6_joint": 1.359465792879686,
+      "right_arm_7_joint": -1.2790362185247661
+    }
+  },
+  "tf": {
+    "target_frame": "base_link",
+    "source_frame": "zed_left_camera_frame_optical",
+    "stamp_ns": 1787026021282802322,
+    "translation_m": [
+      0.12170815441032759,
+      0.05868022108274766,
+      1.2724737416986633
+    ],
+    "rotation_xyzw": [
+      -0.6481635897444903,
+      0.6535936972439236,
+      -0.281373210620776,
+      0.2711611258965984
+    ]
+  },
+  "files": {
+    "rgb_sha256": "0135dce8bfb3c431115456af2f506c54849cd0b4298347f1d0e62fbd5edbab01",
+    "depth_sha256": "457681398472470b5fd76a437dbccf26fcb807a638be0b4b63f69c2df0d83f44",
+    "camera_info_sha256": "a5a3b4d9c0b88caf3bc28147c60e225fb0cca972983d414483fb20a0620cd156"
+  }
+}

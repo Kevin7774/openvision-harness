@@ -1,0 +1,38 @@
+{
+  "frame_id": "example-0001",
+  "received_at_ns": 1010000000,
+  "stereo_target": {
+    "stamp_ns": 1000000000,
+    "pose": {
+      "position_m": [0.5, -0.1, 0.82],
+      "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+    },
+    "confidence": 0.9
+  },
+  "d405_target": {
+    "stamp_ns": 1005000000,
+    "pose": {
+      "position_m": [0.501, -0.1, 0.819],
+      "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+    },
+    "confidence": 0.95
+  },
+  "tactile_left": {
+    "stamp_ns": 1008000000,
+    "contact": false,
+    "normal_force_n": 0.0,
+    "shear_force_n": [0.0, 0.0]
+  },
+  "tactile_right": {
+    "stamp_ns": 1008000000,
+    "contact": false,
+    "normal_force_n": 0.0,
+    "shear_force_n": [0.0, 0.0]
+  },
+  "robot": {
+    "stamp_ns": 1009000000,
+    "joint_limit_margin_rad": 0.3,
+    "collision_free": true,
+    "gripper_opening_m": 0.0465
+  }
+}

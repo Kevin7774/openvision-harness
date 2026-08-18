@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>              <string>XR1Rec</string>
+  <key>CFBundleDisplayName</key>       <string>XR1 Experiment Recorder</string>
+  <key>CFBundleIdentifier</key>        <string>com.astrabot.xr1rec</string>
+  <key>CFBundleExecutable</key>        <string>xr1rec</string>
+  <key>CFBundlePackageType</key>       <string>APPL</string>
+  <key>CFBundleVersion</key>           <string>1.1</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
+  <key>LSMinimumSystemVersion</key>    <string>13.0</string>
+  <!-- Background agent: no Dock icon, no window. -->
+  <key>LSUIElement</key>               <true/>
+  <!-- Without this key macOS kills the process the moment it touches the
+       camera ("attempted to access privacy-sensitive data without a usage
+       description"), so it is what makes the TCC prompt possible at all. -->
+  <key>NSCameraUseContinuityCameraDeviceType</key> <true/>
+  <key>NSCameraUsageDescription</key>
+  <string>Records the XR1 robot's motions so each experiment run has video evidence.</string>
+</dict>
+</plist>

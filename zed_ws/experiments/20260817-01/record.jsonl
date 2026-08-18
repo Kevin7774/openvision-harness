@@ -1,0 +1,6 @@
+{"t": 0.002, "ev": "begin", "tag": "yellow-vista-preflight-20260817"}
+{"t": 7.17, "ev": "record_start", "ok": true, "clip": "20260817-02__01_yellow-vista-preflight-20260817", "run_id": "20260817-02", "step": "01_yellow-vista-preflight-20260817", "rec_confirm_ms": 6605.4}
+{"t": 12.585, "ev": "head_check", "pitch_deg": 39.0, "yaw_deg": 0.0, "pitch_min": 37.0, "yaw_tol": 0.5, "ok_pitch": true, "ok_yaw": true}
+{"t": 12.664, "ev": "exception", "type": "AttributeError", "msg": "'Namespace' object has no attribute 'detector'", "tb": ["  File \"/home/astrabot/workspace/zed_ws/scripts/grasp_block.py\", line 1987, in main\n    blocks, view, proj = perceive(r, detector=a.detector)\n                                              ^^^^^^^^^^\n"]}
+{"t": 12.664, "ev": "outcome", "verdict": "crashed", "error": "AttributeError: 'Namespace' object has no attribute 'detector'"}
+{"t": 13.623, "ev": "record_stop", "local": "clips/01_yellow-vista-preflight-20260817.mov", "lead_s": 0.309, "bytes": 2165719, "frames": 6, "wh": "1920x1080", "run_dir": "20260817-02"}

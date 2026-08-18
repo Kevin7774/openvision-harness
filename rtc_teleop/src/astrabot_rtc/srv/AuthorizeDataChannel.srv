@@ -1,0 +1,12 @@
+string session_id
+string peer_id
+string purpose
+string run_id
+string resource_id
+string channel_label
+string authorization_token
+---
+bool allowed
+string reason_code
+# 机器人本机 steady_clock 纳秒 deadline；allowed=true 时必须非零且位于未来。
+uint64 expires_at

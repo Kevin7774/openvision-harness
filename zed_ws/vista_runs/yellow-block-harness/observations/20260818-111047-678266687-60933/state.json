@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "run_id": "yellow-block-harness",
+  "frame_id": "20260818-111047-678266687-60933",
+  "sensor_stamp_ns": 1787022647570196322,
+  "received_at_ns": 1787022647678266687,
+  "rgb_depth_delta_ms": 0.0,
+  "clock_offset_ms": 108.070365,
+  "rgb": {
+    "topic": "/zed/zed_node/rgb/color/rect/image",
+    "frame_id": "zed_left_camera_frame_optical",
+    "width": 960,
+    "height": 540,
+    "source_encoding": "bgra8",
+    "stored_encoding": "png",
+    "source_step": 3840
+  },
+  "depth": {
+    "topic": "/zed/zed_node/depth/depth_registered",
+    "frame_id": "zed_left_camera_frame_optical",
+    "width": 960,
+    "height": 540,
+    "source_encoding": "32FC1",
+    "stored_dtype": "float32",
+    "unit": "m",
+    "source_step": 3840,
+    "statistics": {
+      "unit": "m",
+      "valid_ratio": 0.805667,
+      "valid_pixels": 417658,
+      "min_m": 0.279068,
+      "median_m": 0.957013,
+      "p95_m": 1.566857,
+      "max_m": 2.141682
+    }
+  },
+  "joint_state": {
+    "topic": "/joint_states",
+    "sensor_stamp_ns": 1787022647597659503,
+    "received_at_ns": 1787022647598702722,
+    "positions_rad": {
+      "head_pitch_joint": 0.680678427,
+      "head_yaw_joint": 0.0,
+      "left_arm_1_joint": -1.183627151146328e-06,
+      "left_arm_2_joint": 9.492455370579462e-07,
+      "left_arm_3_joint": 1.5039027332212168e-05,
+      "left_arm_4_joint": -9.77536776593791e-05,
+      "left_arm_5_joint": 2.2558540998318253e-05,
+      "left_arm_6_joint": -3.417283933408606e-05,
+      "left_arm_7_joint": -1.2340191981753303e-05,
+      "right_arm_1_joint": 1.7362745042880603,
+      "right_arm_2_joint": -0.14937232846590137,
+      "right_arm_3_joint": -2.48744572135581,
+      "right_arm_4_joint": -0.5545378145774923,
+      "right_arm_5_joint": -1.001211965371526,
+      "right_arm_6_joint": -0.9927390183204042,
+      "right_arm_7_joint": 1.5883184501634493
+    }
+  },
+  "tf": {
+    "target_frame": "base_link",
+    "source_frame": "zed_left_camera_frame_optical",
+    "stamp_ns": 1787022647570196322,
+    "translation_m": [
+      0.12170727343908622,
+      0.05861092371227008,
+      1.2724744550951357
+    ],
+    "rotation_xyzw": [
+      -0.6481635897444903,
+      0.6535936972439236,
+      -0.281373210620776,
+      0.2711611258965984
+    ]
+  },
+  "files": {
+    "rgb_sha256": "8561fcfbe5b9986f3a5e9bc8341128e1a7dcd2bdd510cdb85c4a341068647a69",
+    "depth_sha256": "98a36472b36efc785b8961b846f6c5d0f493bc7d6b0054298fd5f05f50b61d91",
+    "camera_info_sha256": "8de02a2f88f849e6821acd334360ae17d2a08bc612aea7e3ea32eb701ebed045"
+  }
+}

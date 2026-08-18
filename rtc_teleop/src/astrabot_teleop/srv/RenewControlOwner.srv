@@ -1,0 +1,14 @@
+# 续租必须匹配完整 binding 与 owner_epoch；unknown、expired 或旧 epoch 一律 fail closed。
+string source_type
+string session_id
+string run_id
+string resource_id
+string source_id
+uint64 owner_epoch
+uint64 requested_ttl_ms
+---
+bool renewed
+string reason_code
+uint64 owner_epoch
+# 机器人本机 steady clock 绝对纳秒，不是 Unix epoch。
+uint64 expires_at_steady_ns

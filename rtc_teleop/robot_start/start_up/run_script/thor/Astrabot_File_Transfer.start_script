@@ -1,0 +1,13 @@
+MODEL_TYPE="Init"
+RUN_IN_DOCKER=false
+DOCKER_CONTAINER_NAME="thor_docker"
+PRIORITY=10
+
+COMMAND_RUN_ONCE_IN_BEGIN=(
+    'source /opt/ros/jazzy/setup.bash'
+    'source /opt/ros/astrabot/setup.bash'
+    'ros2 launch astrabot_file_transfer file_transfer.launch.py config_path:=/opt/ros/astrabot/share/astrabot_file_transfer/config/file_transfer.yaml board_config:=/etc/astrabot/board.yaml'
+)
+
+COMMAND_RUN_IN_LOOP=(
+)

@@ -1,0 +1,7 @@
+string session_id
+string peer_id
+string channel_label
+string reason_code
+---
+bool closed
+string reason_code

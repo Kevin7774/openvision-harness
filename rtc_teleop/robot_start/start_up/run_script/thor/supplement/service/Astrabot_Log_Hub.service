@@ -1,0 +1,20 @@
+[Unit]
+Description=AstraBot THOR Log Hub
+Requires=Astrabot_Log_Agent.service
+After=network-online.target time-sync.target Astrabot_Log_Agent.service
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+Nice=10
+User=astrabot
+WorkingDirectory=/opt/ros/start_up/run
+ExecStart=/opt/ros/start_up/run/Astrabot_Log_Hub.sh
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

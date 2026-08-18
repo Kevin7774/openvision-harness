@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "run_id": "yellow-block-harness",
+  "frame_id": "20260818-160003-317655067-459302",
+  "sensor_stamp_ns": 1787040002960676322,
+  "received_at_ns": 1787040003317655067,
+  "rgb_depth_delta_ms": 0.0,
+  "clock_offset_ms": 356.978745,
+  "rgb": {
+    "topic": "/zed/zed_node/rgb/color/rect/image",
+    "frame_id": "zed_left_camera_frame_optical",
+    "width": 960,
+    "height": 540,
+    "source_encoding": "bgra8",
+    "stored_encoding": "png",
+    "source_step": 3840
+  },
+  "depth": {
+    "topic": "/zed/zed_node/depth/depth_registered",
+    "frame_id": "zed_left_camera_frame_optical",
+    "width": 960,
+    "height": 540,
+    "source_encoding": "32FC1",
+    "stored_dtype": "float32",
+    "unit": "m",
+    "source_step": 3840,
+    "statistics": {
+      "unit": "m",
+      "valid_ratio": 0.556497,
+      "valid_pixels": 288488,
+      "min_m": 0.126732,
+      "median_m": 0.546518,
+      "p95_m": 1.554251,
+      "max_m": 2.350285
+    }
+  },
+  "joint_state": {
+    "topic": "/joint_states",
+    "sensor_stamp_ns": 1787040003291319017,
+    "received_at_ns": 1787040003291876094,
+    "positions_rad": {
+      "head_pitch_joint": 0.680678427,
+      "head_yaw_joint": 0.0,
+      "left_arm_1_joint": -3.5508814534389843e-06,
+      "left_arm_2_joint": 9.492455370579462e-07,
+      "left_arm_3_joint": 1.5039027332212168e-05,
+      "left_arm_4_joint": -9.77536776593791e-05,
+      "left_arm_5_joint": 2.2558540998318253e-05,
+      "left_arm_6_joint": -2.942661164879633e-05,
+      "left_arm_7_joint": -1.2340191981753303e-05,
+      "right_arm_1_joint": -1.4725008264007986,
+      "right_arm_2_joint": -2.4589939848735725,
+      "right_arm_3_joint": 0.7875036272239581,
+      "right_arm_4_joint": -0.9815991938519047,
+      "right_arm_5_joint": -1.144902352017147,
+      "right_arm_6_joint": -1.0341935201692618,
+      "right_arm_7_joint": 1.1747948198727478
+    }
+  },
+  "tf": {
+    "target_frame": "base_link",
+    "source_frame": "zed_left_camera_frame_optical",
+    "stamp_ns": 1787040002960676322,
+    "translation_m": [
+      0.12170727343908622,
+      0.05861092371227008,
+      1.2724744550951357
+    ],
+    "rotation_xyzw": [
+      -0.6481635897444903,
+      0.6535936972439236,
+      -0.281373210620776,
+      0.2711611258965984
+    ]
+  },
+  "files": {
+    "rgb_sha256": "456bfd17934b4f8d2f15fcdd7a6db28cac3881bf50f369943d829b9e6dfedda4",
+    "depth_sha256": "c2c568a9534ec95436ad291d5ec47c0c3d86fae5078ea55ba41470fd8cd3c466",
+    "camera_info_sha256": "2dc1ef3dfd2d5dec132756656b4d0f3d4d376e96c08df84aee4f275990527c5e"
+  }
+}

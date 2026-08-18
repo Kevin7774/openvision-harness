@@ -1,0 +1,29 @@
+[Unit]
+Description=Astrabot common RTC runtime
+# Gateway 由整机启动脚本生成，并声明 After/Requires=multi-user.target。
+# RTC 若反向排序到 Gateway，会与自身 WantedBy=multi-user.target 形成 systemd 环。
+# ROS 2 topic 允许 Gateway 晚于 RTC 上线，因此这里只等待系统基础设施。
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=astrabot
+WorkingDirectory=/opt/ros/start_up/run
+Environment=ASTRABOT_RTC_CONFIG=/etc/astrabot/rtc.yaml
+Environment=ASTRABOT_ROS_SETUP=/opt/ros/astrabot/setup.bash
+Environment=ASTRABOT_ROS_CONFIG=/opt/ros/start_up/config/ros_config.sh
+Environment=LD_LIBRARY_PATH=/opt/ros/astrabot/lib/astrabot_rtc/third_party
+EnvironmentFile=-/etc/astrabot/rtc-teleop.env
+ExecStart=/bin/bash /opt/ros/start_up/run/start-astrabot-rtc.sh
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=30
+TimeoutStopSec=15
+KillSignal=SIGINT
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

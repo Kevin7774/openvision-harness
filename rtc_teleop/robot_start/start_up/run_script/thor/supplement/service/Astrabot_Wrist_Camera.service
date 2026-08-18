@@ -1,0 +1,25 @@
+[Unit]
+Description=AstraBot Wrist Camera
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+Before=Astrabot_Recorder.service
+ConditionPathExists=/dev/l_arm_cam
+ConditionPathExists=/dev/r_arm_cam
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=astrabot
+Group=astrabot
+WorkingDirectory=/opt/ros/start_up/run
+ExecStart=/bin/bash /opt/ros/start_up/run/start-astrabot-wrist-camera.sh
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=15
+Nice=2
+
+[Install]
+WantedBy=multi-user.target

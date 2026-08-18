@@ -1,0 +1,42 @@
+stages:
+  - style
+  - native
+  - backend
+  - arm64
+
+default:
+  interruptible: true
+
+rtc-style:
+  stage: style
+  script:
+    - ./scripts/docker_format_check.sh
+
+rtc-disabled-native:
+  stage: native
+  script:
+    - ./scripts/docker_build_and_test.sh
+
+rtc-libdatachannel-native:
+  stage: backend
+  rules:
+    - if: '$ASTRABOT_RTC_RUN_LIBDATACHANNEL_GATE == "1"'
+    - when: manual
+      allow_failure: true
+  script:
+    - ./scripts/docker_libdatachannel_backend_test.sh
+
+rtc-arm64-runtime-package:
+  stage: arm64
+  rules:
+    - if: '$ASTRABOT_RTC_RUN_ARM64_GATE == "1"'
+    - when: manual
+      allow_failure: true
+  script:
+    - test -d /opt/astrabot_sdk_2404
+    - |
+      sdk_output="$(mktemp -d /tmp/astrabot-libdatachannel-sdk.XXXXXX)"
+      runtime_output="$(mktemp -d /tmp/astrabot-libdatachannel-runtime.XXXXXX)"
+      trap 'rm -rf -- "${sdk_output}" "${runtime_output}"' EXIT
+      ./scripts/docker_build_libdatachannel_arm64_sdk.sh "${sdk_output}"
+      ./scripts/docker_stage_libdatachannel_runtime.sh "${sdk_output}" "${runtime_output}"

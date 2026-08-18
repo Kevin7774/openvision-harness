@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# 复位：手臂关节回 0。直接 ./home，或 ./home left / ./home right。
+#
+# 这里没有任何新逻辑 —— 干活的是 scripts/xr1.py home，它自己会限速(<=0.25 rad/s)、
+# 钳限位、并在别人正往手臂指令话题上发流量时拒动(astra_arm 的 _assert_channel_idle)。
+# 包这一层只为一件事：ROS_DOMAIN_ID 忘了导会静默连到一张几乎空的图，
+# 于是"复位好像没反应"，而真正的原因根本不在手臂上。其余 ROS 环境 login shell 已有。
+set -euo pipefail
+export ROS_DOMAIN_ID=12
+exec python3 "$(dirname "$0")/scripts/xr1.py" home "${@:-both}"

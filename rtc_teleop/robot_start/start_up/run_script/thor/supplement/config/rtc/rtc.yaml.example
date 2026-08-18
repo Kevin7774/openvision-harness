@@ -1,0 +1,49 @@
+topics:
+  gateway_command: /astrabot_gateway/webrtc_signal/cmd
+  gateway_report: /astrabot_gateway/webrtc_signal/report
+  peer_event: /astrabot/rtc/peer_event
+  data_received: /astrabot/rtc/data_channel/received
+  authorize_channel_service: /astrabot/teleop/authorize_channel
+  close_peer_service: /astrabot/rtc/close_peer
+  diagnostics: /diagnostics
+
+runtime:
+  max_viewers: 2
+  max_peers: 4
+  max_data_channels: 8
+  max_payload_bytes: 16384
+  dispatch_period_ms: 1
+  authorization_timeout_ms: 200
+  diagnostics_period_ms: 1000
+
+signaling:
+  max_payload_bytes: 65536
+
+transport:
+  # 只有构建能力、受控 runtime 和 /etc/astrabot/rtc-teleop.env Gate 同时就绪时才允许 libdatachannel。
+  backend: disabled
+  max_buffered_amount_bytes: 65536
+  max_media_buffered_amount_bytes: 2097152
+
+media:
+  # disabled transport 必须保持 false。
+  enabled: false
+  max_encoded_subscribers: 2
+  encoder_name: h264_nvenc
+  require_hardware: true
+  output_width: 640
+  output_height: 360
+  frame_rate: 15
+  fallback_frame_rate: 15
+  bitrate_bps: 4000000
+  gop_size_frames: 15
+  max_encoded_frame_bytes: 2097152
+  max_encoder_surfaces: 2
+  pixel_format: nv12
+  preset: p1
+  tune: ull
+  profile: baseline
+  level: 3.1
+  track_ids: left_eye,right_eye
+  image_topics: /zed/zed_node/left/color/rect/image,/zed/zed_node/right/color/rect/image
+  camera_info_topics: /zed/zed_node/left/color/rect/camera_info,/zed/zed_node/right/color/rect/camera_info

@@ -1,0 +1,20 @@
+[Unit]
+Description=AstraBot ECU Log Agent
+After=local-fs.target wait-ccu-time.service network-online.target
+Wants=wait-ccu-time.service network-online.target
+
+[Service]
+Type=simple
+Nice=10
+User=astrabot
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/ros/start_up/run
+ExecStart=/opt/ros/start_up/run/Astrabot_Log_Agent.sh
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

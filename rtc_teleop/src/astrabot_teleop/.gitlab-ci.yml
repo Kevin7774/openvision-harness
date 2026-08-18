@@ -1,0 +1,31 @@
+stages:
+  - native
+  - arm64
+
+default:
+  interruptible: true
+
+before_script:
+  - export ROBOT_WORKSPACE_ROOT="$(cd "${CI_PROJECT_DIR}/../.." && pwd)"
+  - mkdir -p "${ROBOT_WORKSPACE_ROOT}/robot_data" "${ROBOT_WORKSPACE_ROOT}/robot_system"
+  - if [[ ! -d "${ROBOT_WORKSPACE_ROOT}/robot_data/astrabot_data_interfaces/.git" ]]; then git clone --depth 1 --branch dev "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/robot/robot_data/astrabot_data_interfaces.git" "${ROBOT_WORKSPACE_ROOT}/robot_data/astrabot_data_interfaces"; else git -C "${ROBOT_WORKSPACE_ROOT}/robot_data/astrabot_data_interfaces" remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/robot/robot_data/astrabot_data_interfaces.git" && git -C "${ROBOT_WORKSPACE_ROOT}/robot_data/astrabot_data_interfaces" fetch --depth 1 origin dev && git -C "${ROBOT_WORKSPACE_ROOT}/robot_data/astrabot_data_interfaces" checkout --detach FETCH_HEAD; fi
+  - if [[ ! -d "${ROBOT_WORKSPACE_ROOT}/robot_system/astrabot_rtc/.git" ]]; then git clone --depth 1 --branch dev "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/robot/robot_system/astrabot_rtc.git" "${ROBOT_WORKSPACE_ROOT}/robot_system/astrabot_rtc"; else git -C "${ROBOT_WORKSPACE_ROOT}/robot_system/astrabot_rtc" remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/robot/robot_system/astrabot_rtc.git" && git -C "${ROBOT_WORKSPACE_ROOT}/robot_system/astrabot_rtc" fetch --depth 1 origin dev && git -C "${ROBOT_WORKSPACE_ROOT}/robot_system/astrabot_rtc" checkout --detach FETCH_HEAD; fi
+
+teleop-native:
+  stage: native
+  variables:
+    ASTRABOT_TELEOP_RUN_ARM64: "0"
+  script:
+    - ./scripts/docker_build_and_test.sh
+
+teleop-arm64:
+  stage: arm64
+  rules:
+    - if: '$ASTRABOT_TELEOP_RUN_ARM64_GATE == "1"'
+    - when: manual
+      allow_failure: true
+  variables:
+    ASTRABOT_TELEOP_RUN_ARM64: "1"
+  script:
+    - test -d /opt/astrabot_sdk_2404
+    - ./scripts/docker_build_and_test.sh

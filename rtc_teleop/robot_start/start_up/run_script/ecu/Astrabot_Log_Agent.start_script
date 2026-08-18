@@ -1,0 +1,13 @@
+MODEL_TYPE="Init"
+RUN_IN_DOCKER=false
+DOCKER_CONTAINER_NAME="ecu_docker"
+PRIORITY=10
+
+COMMAND_RUN_ONCE_IN_BEGIN=(
+    'source /opt/ros/jazzy/setup.bash'
+    'source /opt/ros/astrabot/setup.bash'
+    'ros2 launch astrabot_log_agent agent.launch.py config_path:="$(ros2 pkg prefix --share astrabot_log_agent)/config/agent.yaml" board_config:=/etc/astrabot/board.yaml'
+)
+
+COMMAND_RUN_IN_LOOP=(
+)

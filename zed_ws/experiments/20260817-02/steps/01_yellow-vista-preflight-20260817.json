@@ -1,0 +1,57 @@
+{
+  "seq": 1,
+  "action": "yellow-vista-preflight-20260817",
+  "params": {
+    "dry_run": true,
+    "hold": false,
+    "speed": 0.35,
+    "tol": 45.0,
+    "clear": 0.12,
+    "no_video": true,
+    "require_video": false,
+    "servo_iters": 4,
+    "no_nudge": false,
+    "no_wrist_gate": false,
+    "wrist_min_frac": 0.002,
+    "wrist_off_max": 0.5,
+    "color": "yellow",
+    "strict_rise": false,
+    "free_yaw": false,
+    "tag": "yellow-vista-preflight-20260817"
+  },
+  "goal": "yellow-vista-preflight-20260817（dry_run=True、hold=False、speed=0.35、tol=45.0、clear=0.12、no_video=True、require_video=False、servo_iters=4、no_nudge=False、no_wrist_gate=False、wrist_min_frac=0.002、wrist_off_max=0.5、color=yellow、strict_rise=False、free_yaw=False、tag=yellow-vista-preflight-20260817）",
+  "ok": false,
+  "error": "AttributeError: 'Namespace' object has no attribute 'detector'",
+  "notes": [
+    "裁定 crashed；详细记录 experiments/20260817-01/record.jsonl"
+  ],
+  "t_start": 1786942058.0310678,
+  "t_end": 1786942063.5248275,
+  "start_iso": "2026-08-17T12:47:38.031",
+  "end_iso": "2026-08-17T12:47:43.525",
+  "duration": 5.494,
+  "marks": [],
+  "motion_spans": null,
+  "moving_s": null,
+  "motion_error": null,
+  "video": {
+    "clip": "clips/01_yellow-vista-preflight-20260817.mov",
+    "rec_confirm_ms": 6605.4,
+    "lead_s": 0.309,
+    "mac_started_at": 1786942057.722307,
+    "mac_stopped_at": 1786942063.4036021,
+    "mac_duration": 5.681295156478882,
+    "bytes": 2165719,
+    "probe": {
+      "w": 1920,
+      "h": 1080,
+      "codec": "h264",
+      "fps": 2.0,
+      "frames": 6,
+      "duration": 3.006,
+      "bytes": 2165719
+    }
+  },
+  "before": {},
+  "after": {}
+}

@@ -1,0 +1,13 @@
+[Unit]
+Description=Wait ccu time sync and align
+DefaultDependencies=no
+Before=multi-user.target
+
+[Service]
+User=astrabot
+Type=oneshot
+ExecStart=/usr/local/bin/wait-and-sync-ccu-time.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

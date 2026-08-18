@@ -1,0 +1,12 @@
+# 释放必须匹配完整 binding 与 owner_epoch；相同 release 重试必须幂等成功。
+# unknown binding 不得释放其他 owner，无法确认结果时 fail closed。
+string source_type
+string session_id
+string run_id
+string resource_id
+string source_id
+uint64 owner_epoch
+string reason_code
+---
+bool released
+string result_code

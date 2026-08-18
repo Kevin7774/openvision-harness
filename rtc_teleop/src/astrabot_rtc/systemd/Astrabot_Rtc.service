@@ -1,0 +1,16 @@
+[Unit]
+Description=Astrabot common RTC runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=ASTRABOT_RTC_CONFIG=/opt/ros/astrabot/share/astrabot_rtc/config/rtc.yaml
+Environment=LD_LIBRARY_PATH=/opt/ros/astrabot/lib/astrabot_rtc/third_party
+ExecStart=/bin/bash -lc 'source /opt/ros/astrabot/setup.bash && exec ros2 launch astrabot_rtc rtc.launch.py'
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

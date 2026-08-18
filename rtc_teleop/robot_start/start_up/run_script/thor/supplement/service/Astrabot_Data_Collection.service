@@ -1,0 +1,18 @@
+[Unit]
+Description=Astrabot Data Collection
+After=multi-user.target network-online.target time-sync.target Astrabot_Ros_Monitor.service
+Wants=network-online.target time-sync.target Astrabot_Ros_Monitor.service
+
+[Service]
+Type=simple
+User=astrabot
+WorkingDirectory=/home/astrabot/deploy
+ExecStartPre=/usr/local/bin/wait-controller-node.sh
+ExecStart=/opt/ros/start_up/run/start-data-collection.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=330
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

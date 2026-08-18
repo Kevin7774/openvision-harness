@@ -1,0 +1,25 @@
+uint8 STATE_IDLE=0
+uint8 STATE_AUTHORIZED=1
+uint8 STATE_CONNECTED=2
+uint8 STATE_ARMED=3
+uint8 STATE_CONTROLLING=4
+uint8 STATE_STOPPING=5
+uint8 STATE_CLOSED=6
+uint8 STATE_FAULT=7
+
+uint8 state
+string session_id
+string run_id
+string resource_id
+string peer_id
+string channel_label
+bool authorized
+bool connected
+bool deadman_active
+uint64 last_sequence
+uint64 sequence_gap_count
+uint64 rejected_frame_count
+uint64 mailbox_overwrite_count
+uint64 watchdog_stop_count
+uint64 last_frame_steady_time_ns
+string reason_code

@@ -1,0 +1,183 @@
+{
+  "_derived": "由 scripts/exp_report.py 生成，可重新生成，不要手改",
+  "aborted": false,
+  "argv": [
+    "grasp_block.py",
+    "--dry-run",
+    "--color",
+    "yellow",
+    "--no-video",
+    "--tag",
+    "yellow-vista-preflight-20260817"
+  ],
+  "code": {
+    "base_nudge.py": {
+      "mtime": 1786604871.7,
+      "sha1": "39d5e9dd2e09"
+    },
+    "calib_probe.py": {
+      "mtime": 1786437015.7,
+      "sha1": "e6216342c445"
+    },
+    "exp_log.py": {
+      "mtime": 1786704715.6,
+      "sha1": "847ce750c795"
+    },
+    "global_edge_grasp.py": {
+      "mtime": 1786706174.2,
+      "sha1": "d6bc9256d647"
+    },
+    "grasp_block.py": {
+      "mtime": 1786704708.7,
+      "sha1": "9b22f20ad6b0"
+    },
+    "grasp_zero_calib.py": {
+      "mtime": 1786604871.7,
+      "sha1": "2168e9903be3"
+    },
+    "ik_probe.py": {
+      "mtime": 1786704164.0,
+      "sha1": "5e2f9e65cb76"
+    },
+    "perc_repeat.py": {
+      "mtime": 1786346954.4,
+      "sha1": "896e935e7209"
+    },
+    "retry_edge_grasp.py": {
+      "mtime": 1786706158.7,
+      "sha1": "1c81cd374224"
+    },
+    "safe_retreat.py": {
+      "mtime": 1786435227.0,
+      "sha1": "931b52e1ad6a"
+    },
+    "tip_probe.py": {
+      "mtime": 1786436997.0,
+      "sha1": "f22c175984b8"
+    },
+    "xr1.py": {
+      "mtime": 1786689307.7,
+      "sha1": "0faaacc4eb57"
+    }
+  },
+  "elapsed_s": 13.62,
+  "exception": "'Namespace' object has no attribute 'detector'",
+  "ground_truth": {
+    "pose": null,
+    "reason": "ArUco 真值通道未搭（docs/05 §E1.2，优先级已下调）"
+  },
+  "head_pose": {
+    "constant": null,
+    "reason": "这次没有任何事件记下头部关节角",
+    "source": null
+  },
+  "iso": "20260817-124730",
+  "kind": "grasp_block",
+  "ladder": {
+    "at_ceiling": false,
+    "by_design": true,
+    "ceiling": 5,
+    "ceiling_why": "`dry_run` 开着，设计上只跑到「离地余量通过」",
+    "known": true,
+    "reached": 0,
+    "reached_label": null,
+    "stages": [
+      {
+        "key": "perceive",
+        "label": "感知到积木",
+        "state": "missed"
+      },
+      {
+        "key": "color_filter",
+        "label": "按颜色筛选",
+        "state": "missed"
+      },
+      {
+        "key": "candidates",
+        "label": "选定目标",
+        "state": "missed"
+      },
+      {
+        "key": "plan",
+        "label": "IK 出解",
+        "state": "missed"
+      },
+      {
+        "key": "floor_check",
+        "label": "离地余量通过",
+        "state": "missed"
+      },
+      {
+        "key": "at_pregrasp",
+        "label": "到预抓位",
+        "state": "missed"
+      },
+      {
+        "key": "at_grasp",
+        "label": "到抓取高度",
+        "state": "missed"
+      },
+      {
+        "key": "grip_close",
+        "label": "闭合夹爪",
+        "state": "missed"
+      },
+      {
+        "key": "grasp_evidence",
+        "label": "起吊并举证",
+        "state": "missed"
+      }
+    ],
+    "stopped_at": {
+      "key": "perceive",
+      "label": "感知到积木"
+    },
+    "total": 9
+  },
+  "measurements": [],
+  "n_events": 6,
+  "name": "20260817-01",
+  "outcome": {
+    "error": "AttributeError: 'Namespace' object has no attribute 'detector'",
+    "verdict": "crashed"
+  },
+  "params": {
+    "clear": 0.12,
+    "color": "yellow",
+    "dry_run": true,
+    "free_yaw": false,
+    "hold": false,
+    "no_nudge": false,
+    "no_video": true,
+    "no_wrist_gate": false,
+    "require_video": false,
+    "servo_iters": 4,
+    "speed": 0.35,
+    "strict_rise": false,
+    "tag": "yellow-vista-preflight-20260817",
+    "tol": 45.0,
+    "wrist_min_frac": 0.002,
+    "wrist_off_max": 0.5
+  },
+  "progress": {
+    "auto": null,
+    "note": null,
+    "prev_same_kind": null
+  },
+  "running": false,
+  "snaps": [],
+  "tag": "yellow-vista-preflight-20260817",
+  "target": null,
+  "verdict": "crashed",
+  "verdict_is_episode": false,
+  "verdict_note": "抛异常退出",
+  "video": {
+    "clip": "20260817-02__01_yellow-vista-preflight-20260817",
+    "frames": 6,
+    "ok": true,
+    "reason": null,
+    "rec_confirm_ms": 6605.4,
+    "run_dir": "20260817-02",
+    "wh": "1920x1080"
+  }
+}
