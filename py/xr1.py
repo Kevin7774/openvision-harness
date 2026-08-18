@@ -41,15 +41,17 @@ refusal is correct, do not bypass it.
 
 CLI
 ---
-    python3 xr1.py status                  # full state probe (xr1_verify.py)
-    python3 xr1.py pose                    # current joint angles
+    python3 xr1.py pose                    # current joints / grippers / tcp
     python3 xr1.py look  40 0              # head pitch/yaw in DEGREES
     python3 xr1.py grip  left close        # or: open / 0.0-1.0
     python3 xr1.py wave  right --rounds 2  # raise + wave + gripper + lower
     python3 xr1.py demo  --rounds 2        # both arms alternating
     python3 xr1.py home                    # all arm joints to 0
     python3 xr1.py snap  --all             # capture every camera
-    python3 xr1.py blocks                  # ZED -> table plane -> blocks in base_link
+
+Block localisation is not here any more: it is `xr1-vision plan` (Rust). The old
+`status` and `blocks` subcommands shelled out to xr1_verify.py / zed_perception.py
+/ blocks_to_base.py, none of which exist -- see docs/decisions/0003.
 
 Film an action with the external camera on the Mac via the Rust journal, which
 writes the experiment record and drives xr1_cam.py for the clip:
@@ -304,8 +306,9 @@ class XR1:
     def tip_center(self, side, offset):
         """**Measured** fingertip-midpoint in base_link, rotation included.
 
-        `offset` is the tcp->fingertip-midpoint vector in the tcp frame; pass
-        `grasp_block.TIP_CENTER` (kept there so the geometry lives in one file).
+        `offset` is the tcp->fingertip-midpoint vector in the tcp frame. The one
+        authoritative copy is `TIP_CENTER_M` in crates/xr1-vision/src/kinematics.rs;
+        get it from `xr1-vision fk` rather than writing the numbers again here.
         This is the quantity every table-clearance check must use -- see the
         warning in tcp_z(). Returns a 3-vector, or None if TF is unavailable.
         """
@@ -563,12 +566,6 @@ def _add_record_flags(p):
 
 
 # ------------------------------------------------------------------- CLI ----
-def cmd_status(a):
-    os.execvp(sys.executable, [sys.executable,
-                               os.path.join(SCRIPTS, "xr1_verify.py")]
-              + (["--quick"] if a.quick else []))
-
-
 def cmd_bringup(a):
     """Start whatever is missing. The G2 gripper driver is NOT a systemd
     service, so it is gone after every reboot -- and the RTC is dead, so a
@@ -731,24 +728,10 @@ def cmd_snap(a):
             r.close()
 
 
-def cmd_blocks(a):
-    j = "/tmp/blocks.json"
-    print("--- ZED perception (deploy venv, py3.10) ---")
-    subprocess.run([DEPLOY_PY, os.path.join(SCRIPTS, "zed_perception.py"),
-                    "--json", j] + (["--save-viz"] if a.viz else []))
-    print("--- to base_link (ROS py3.12) ---")
-    subprocess.run([sys.executable, os.path.join(SCRIPTS, "blocks_to_base.py"),
-                    "--json", j])
-
-
 def main():
     ap = argparse.ArgumentParser(
         description="XR1 unified control. Needs ROS_DOMAIN_ID=12.")
     sub = ap.add_subparsers(dest="cmd", required=True)
-
-    p = sub.add_parser("status", help="full state probe")
-    p.add_argument("--quick", action="store_true")
-    p.set_defaults(fn=cmd_status)
 
     sub.add_parser("bringup", help="start anything missing (esp. the gripper "
                                    "driver, which dies on every reboot)"
@@ -792,10 +775,6 @@ def main():
     p.add_argument("--all", action="store_true")
     p.add_argument("--out", default="/tmp/xr1_snaps")
     p.set_defaults(fn=cmd_snap)
-
-    p = sub.add_parser("blocks", help="ZED -> table plane -> blocks in base_link")
-    p.add_argument("--viz", action="store_true")
-    p.set_defaults(fn=cmd_blocks)
 
     p = sub.add_parser(
         "rec", help="experiment recording: Mac camera + per-action records + movie")

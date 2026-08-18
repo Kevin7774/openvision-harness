@@ -4,13 +4,24 @@
 > 每条按 **症状 → 我当时的错误判断 → 真实原因 → 正确做法** 写,因为下次重犯的方式
 > 一定是"症状看起来像另一件事"。
 >
-> 校验时间:2026-08-07 起,最后一次新增 **2026-08-11 上午**(§39~§44 全部当天在硬件上
-> 踩到并修掉),此前各条最后一次全量复验 2026-08-10。
-> 自动检查:`python3 scripts/xr1_verify.py`(11 个 section + TF 段,逐子系统给
-> READY/NOT READY,有 FAIL 就 exit 1)。统一控制层:`scripts/xr1.py`。速查:skill `xr1-robot`。
-> 一台刚重启过的机器先跑 `python3 scripts/xr1.py bringup`(§21);**读数静默而进程活着的
-> 时候 `bringup` 修不了,要先 `kill -9`**(§39)。
-> **今天卡在哪、下一步做什么** → [`STATUS.md`](STATUS.md)。
+> 校验时间:2026-08-07 起,最后一次新增 **2026-08-18**。各条最后一次全量复验 2026-08-10。
+>
+> ⚠️ **脚本名是历史记录,不是入口。** 这份文件写成时,工作区里有大约 95 个 Python 脚本
+> (`xr1_verify.py` `grasp_block.py` `servo.py` `agent_loop.py` `zed_perception.py` …)。
+> 那些文件**已经不在磁盘上了**,也不在任何 git 历史里(2026-08-18 的重构开始前这里没有
+> 版本控制),无法恢复。每条坑记的**症状、机制、判据和修法仍然有效** —— 只有命令行需要
+> 翻译到现在真实存在的两个入口:
+>
+> | 文中的写法 | 现在 |
+> |---|---|
+> | `scripts/xr1.py …` | `py/xr1.py …`(同一个文件,同一套命令) |
+> | `scripts/xr1_verify.py` | **不存在了**。等价检查:`py/xr1.py pose` ＋ `bin/tf-frames` ＋ `py/xr1_cam.py doctor` |
+> | `scripts/vista_observe.py` | `py/vista_observe.py` / `xr1-vision observe` |
+> | `grasp_block` / `zed_perception` 的感知与 IK | `xr1-vision plan`(`crates/xr1-vision/`) |
+> | `pad_offset.py` 的手眼测量 | `py/pad_offset_measure.py` |
+> | `servo.py` / `plan_descent.py` | **不存在了**,见 [ADR 0003](../decisions/0003-lost-python-pipeline.md) |
+>
+> **今天卡在哪、下一步做什么** → [`status.md`](./status.md)。
 
 ---
 
@@ -361,7 +372,7 @@ pyzed 原生 API 只在确实需要时用,那时才 `systemctl stop`(记得起�
 | **症状** | "我只改过夹爪那个 yaml" —— 错。重装任何一个厂商包都会静默回退我依赖的行为 |
 | **真实清单** | ① `astrabot/share/astrabot_actuator_sdk/config/astrabot_arm_actuator_config.yaml`(空 `gripper_list` → SIGABRT,§2)<br>② `astrabot/share/astrabot_xr1_evt2_description/urdf/astrabot_xr1_evt2_description.urdf`(头部限位 + 底盘相机 link 改名 + 腕部相机 origin,§22)<br>③ `astrabot/share/astrabot_xr1_evt2_description/urdf/**astrabot_xr1_evt2_arm_description.urdf**`(同样的相机改名和腕部相机 origin)<br>④ `astrabot/share/zed_wrapper/config/zed2i.yaml`(`grab_frame_rate: 15`;HD1080@30 ≈ 249 MB/s 会把相机从 USB 总线上打掉 → `CAMERA REBOOTING`,是带宽/功耗余量问题**不是**相机坏)<br>⑤ `astrabot/share/zed_wrapper/config/common_stereo.yaml`(`self_calib: false` 保住我们依赖的外参;`publish_left_right: true`)<br>⑥ **`/opt/ros/start_up/run/Astrabot_Controller.sh`** —— 把启动的 ros2_control launch 从 arm-only 换成 **arm_head**,这是头颈**有没有命令接口**的开关 |
 | **⑥ 为什么最危险** | 厂商默认是 arm-only,不加载 `astrabot_neck_forward_controller`,于是 `head_pitch/head_yaw` **根本没有命令接口** —— 而且不报错,只是话题不存在。所有跟头有关的能力(包括"把 ZED 转到工作区",要 head_pitch 打到 +40° 极限)全挂在这一行上 |
-| **⑥ 为什么之前漏了** | 准确地说:它**被记录了但没被 guard**(`docs/07_hardware_map.md` 早就写了这次改动)。漏的是 guard —— 因为它**不在 `/opt/ros/astrabot/` 下**,而在 `/opt/ros/start_up/` 下,我按"astrabot 包树下改过的文件"去建 guard 清单,它天然不在范围内。2026-08-10 改成在**整个 `/opt/ros` 里找 `.bak` 文件**才捞出来。**"文档里写过"和"回退时会被发现"是两件事** |
+| **⑥ 为什么之前漏了** | 准确地说:它**被记录了但没被 guard**(`../architecture/hardware-map.md` 早就写了这次改动)。漏的是 guard —— 因为它**不在 `/opt/ros/astrabot/` 下**,而在 `/opt/ros/start_up/` 下,我按"astrabot 包树下改过的文件"去建 guard 清单,它天然不在范围内。2026-08-10 改成在**整个 `/opt/ros` 里找 `.bak` 文件**才捞出来。**"文档里写过"和"回退时会被发现"是两件事** |
 | **③ 为什么最容易漏** | 它和 ② 名字只差一个 `_arm`,而**手臂那条 launch 加载的是 ③ 不是 ②**(`astrabot_controller_bringup/launch/astrabot_xr1_evt2_arm.launch.py`)。只补 ② 的话,整机描述是对的、手臂栈跑的却是厂商几何——两边不一致而且没人报错 |
 | **③ 的一个诚实说明** | 那两个 `{left,right}_arm_camera_joint` 的 origin(厂商 `±0.007 -0.0615 0.0161` → 现在 `0 -0.0768 0.0995`)**没有任何来源记录**,谁量的、怎么量的都查不到(§28)。guard 的作用是"别再静默变化",**不是**断言这个数是对的 |
 | **diff 时的坑** | `.bak` 是 CRLF、我改过的文件是 LF,`diff` 会报"2084 行全变了"。必须 `diff --strip-trailing-cr`,真实差异只有 7 行 |
@@ -534,7 +545,7 @@ pyzed 原生 API 只在确实需要时用,那时才 `systemctl stop`(记得起�
 | **症状** | `timeout 560 python3 yaw_invariance.py` 在 **2 小时 25 分**后仍在跑,占 94.7% CPU。同期另一个 `teleop_record.py` 已经对着**一动不动**的手臂 200Hz 记了 87 分钟,`record.jsonl` 涨到 233MB(相邻样本的 `q` 完全逐位相同 —— 它记录的是"什么都没发生") |
 | **机制** | `timeout` 到点只发 **SIGTERM**。这些脚本是多线程 rclpy(executor 在自己的线程里 spin),Python 的信号处理只在主线程的字节码间隙执行,而主线程卡在 C 层的 spin 里 —— 于是 **SIGINT 和 SIGTERM 都被无视**,只有 SIGKILL 收得掉(实测:INT 无效 → TERM 无效 → KILL 立刻退) |
 | **为什么危险** | 我一直把 `timeout N` 当成"跑飞了也有兜底"的安全绳。**它不是。** 一个会发臂部指令的脚本如果卡在循环里,`timeout` 拦不住它,而这台机器上 `effort` 是 `.nan`、控制器无插值 —— 没有第二道防线 |
-| **怎么办** | ① 兜底要写在**脚本内部**(循环里查自己的挂钟,超时就 `break` 并回到安全位),别指望外部信号;② 外部收尾用 `kill -9`,别停在 TERM 就以为收掉了;③ 收工前 `pgrep -af 'python3 .*(zed_ws|scripts)/'` 点一遍 —— 自己埋的进程是环境的一部分(§18),而且这次它们合计吃掉约 170% CPU,正好压在我要跑 CPU 推理的时候 |
+| **怎么办** | ① 兜底要写在**脚本内部**(循环里查自己的挂钟,超时就 `break` 并回到安全位),别指望外部信号;② 外部收尾用 `kill -9`,别停在 TERM 就以为收掉了;③ 收工前 `pgrep -af 'python3 .*workspace/py/'` 点一遍 —— 自己埋的进程是环境的一部分(§18),而且这次它们合计吃掉约 170% CPU,正好压在我要跑 CPU 推理的时候 |
 | **元教训** | 见下面第 23 条 |
 
 ---
@@ -606,7 +617,7 @@ pyzed 原生 API 只在确实需要时用,那时才 `systemctl stop`(记得起�
 
 | | |
 |---|---|
-| **背景** | 桌布已经撤了,现在是**白色桌面**。此前 `docs/07_perception_scheme.md` 把逐像素深度不可信归因为"粉色重复格子桌布" |
+| **背景** | 桌布已经撤了,现在是**白色桌面**。此前 已删的旧感知文档(见 ADR 0003) 把逐像素深度不可信归因为"粉色重复格子桌布" |
 | **两次预测,两次被实测推翻** | ① "重复纹理是真因 → 换掉桌布" —— 桌布本来就没了,建议无效。② 改口"白色无纹理 → 被动立体会**没有**深度" —— 实测 **89.7~90.93% 有效像素**,深度不但有,还很平 |
 | **实测(08-11,`depth_now.py` / `plane_now.py`)** | 有效 **90.93%**(NaN 9.07%),960×540,`frame_id=zed_left_camera_frame_optical`;平面残差 **std 10.66 mm**(p95 20.45 mm);法向倾角 **0.26°**;拟合桌高 **0.8128 m** vs 卷尺 0.750 → **+62.8 mm** |
 | **对比(08-07,粉桌布)** | 有效 70.7%;拟合桌高 0.702 → **−48 mm** |
@@ -724,7 +735,7 @@ pyzed 原生 API 只在确实需要时用,那时才 `systemctl stop`(记得起�
 | **它顺手杀了什么** | 我的只读真值录制器。16:27 那次 run 开着 `chest` + 一路腕相机(开的是 `/dev/l_arm_cam`,也就是 **4.3 那台**);掉线后它攥着死 fd,16:47 强制落盘时 `retrieve()` 拿到空缓冲区 → cv2 在 `imdecode_` 里**抛断言**(不是返回 False)→ 整个录制器 crashed。**不是随机抖动,是有确定原因的** |
 | **和 §39 同族** | 那条是串口被重新枚举、驱动攥着废 fd。**同一个失效族,这次发生在相机上**:设备节点消失 ≠ 进程报错,fd 还在,读出来是空的 |
 | **判据** | 扫 `/proc/*/fd` 找 **`(deleted)`** —— 这三个字比时间戳对比更直接,一眼定案。**看不出来的做法**:`lsusb \| grep -c DECXIN` 只返回个数不报错;进程列表全绿 |
-| **插回去也不会自己好** | 必须重启 dora 图。而重启 dora 会掐掉别人正在跑的摇操采集,是**对外动作** —— 先看 `STATUS.md` 和 `pgrep -af`。另注:dora 起的是**两个** `webcam_node`,右腕单目已被 DW2 取代后,**总有一个节点必然是死的**,光插线不改 dora 配置修不干净 |
+| **插回去也不会自己好** | 必须重启 dora 图。而重启 dora 会掐掉别人正在跑的摇操采集,是**对外动作** —— 先看 `status.md` 和 `pgrep -af`。另注:dora 起的是**两个** `webcam_node`,右腕单目已被 DW2 取代后,**总有一个节点必然是死的**,光插线不改 dora 配置修不干净 |
 | **顺带纠正一个框架错误** | 我一度把"dora 独占腕相机"写成障碍。**那是摇操能工作的原因**(人要在头显里看图),而且摇操期间真值只需要关节角、腕相机闭环只在**自主运行**时用(那时 dora 是关的)—— 两者时间上根本不重叠,不存在冲突 |
 
 ---
@@ -769,7 +780,7 @@ pyzed 原生 API 只在确实需要时用,那时才 `systemctl stop`(记得起�
     `/opt/ros/start_up/` 下 —— 清点方法决定了它永远不会出现。换成"整个 `/opt/ros`
     里找 `.bak`"才捞到。**用文件系统的痕迹去清点,不要用记忆。**
 16. **"写进文档了"不等于"回退时会被发现"。**(§23)
-    第 6 个文件在 `07_hardware_map.md` 里老早就有记录,却照样一年半载没人会去比对。
+    第 6 个文件在 `../architecture/hardware-map.md` 里老早就有记录,却照样一年半载没人会去比对。
     人读文档,机器读 guard。**改动的记录归文档,改动的守卫归自检脚本,两件事都要做。**
 17. **文档写对了不等于代码用对了。**(§30)
     README 和 SKILL.md 里早写明「两个 lead 字段该采信 `rec_confirm_ms`」,而生成报告

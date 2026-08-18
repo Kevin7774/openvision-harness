@@ -1,12 +1,17 @@
-# 07 · 本机硬件与配置权威地图
+# 硬件与配置权威地图
 
+> ⚠️ **脚本名是历史记录,不是入口。** 本文多处写 `python3 scripts/xr1_verify.py`
+> ——**那个脚本不存在了**([ADR 0003](../decisions/0003-lost-python-pipeline.md))。
+> 它做的检查现在是三条:`py/xr1.py pose`(关节/夹爪反馈)、`bin/tf-frames`
+> (TF 总数 52 / zed 6)、`py/xr1_cam.py doctor`(录制器)。**硬件数字本身仍然有效。**
+>
 > **这份文档的每一行都来自本机实测**，不是抄手册、不是推测。
 > 采集时间：2026-08-07 15:50–16:40 CST · 主机 `tegra-ubuntu` (192.168.123.102)
 > 采集手段：`lsusb -t` / `udevadm info` / `/sys/class/tty` / `ip -details link` /
 > `ros2 node|topic list` / `ros2 control list_*` / 只读 Modbus 0x03 扫描 / `/proc/<pid>/environ`
 >
 > 凡是**没有实测到**的，本文一律写「未验证」而不是猜一个值。
-> 配套文档：[`08_gripper_g2_driver.md`](08_gripper_g2_driver.md)（夹爪专题）
+> 配套文档：[`08_gripper_g2_driver.md`](gripper-g2.md)（夹爪专题）
 
 ---
 
@@ -179,7 +184,7 @@ astrabot_shutdown            shutdown_node.launch.py
 `can_delta_enable: false`、`tpdo2_enable: false`。
 
 > **夹爪不在 CAN 上。** 对 can1+can2 全部 127 个 node id 做过完整扫描，只有上表这 14 个
-> 驱动器应答。详见 `08_gripper_g2_driver.md`。
+> 驱动器应答。详见 [`gripper-g2.md`](gripper-g2.md)。
 
 ## 5. 串口全表
 
@@ -233,7 +238,7 @@ Bus 002 root_hub (tegra-xusb/4p, 20000M/x2)
 > 2026-08-11 17:15 的单变量拔线实验证明当时 **4.4 = 左腕**（与厂商规则相反）；
 > 17:29 操作者改插到 4.3，规则又对了。**重插一次侧别就变，且零痕迹。**
 > 判断当下只有两招：让人拔一根线看内核掉哪个口，或抓一帧看画面里有没有同侧橙色夹垫。
-> 完整叙述见 `../PITFALLS.md` §48。
+> 完整叙述见 `../operations/pitfalls.md` §48。
 
 ## 7. 相机 / video 全表
 
@@ -426,7 +431,7 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 
 `/robot_description` 话题在 domain 12 里有效，`robot_state_publisher` 在跑，`/tf` 可用。
 本工作区的 FK 已用真机 `/tf` 交叉验证过（q=0 时 `base_link→*_tcp_link` 吻合 0.5 mm，
-见 `../results/reach_ik_map.md`）—— 也就是说 **URDF 与真机一致，可以放心用来算 IK**。
+见 `kinematics.md`「Search lessons」）—— 也就是说 **URDF 与真机一致，可以放心用来算 IK**。
 
 ## 10. ZED 2i 状态与已做的配置改动
 
@@ -507,20 +512,20 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 | # | 现象 | 实测证据 | 影响 / 建议 |
 |---|---|---|---|
 | D1 | **CH340 没有驱动** | `1a86:7523` @ `1-3.4.3` 枚举成功但 `Driver=[none]`，无 tty 节点。`modinfo ch341` → `Module ch341 not found`；`/lib/modules/6.8.12-rt-tegra/kernel/drivers/usb/serial/` 里只有 `cp210x/ftdi_sio/garmin_gps/option/usbserial/usb_wwan`，**没有 `ch341.ko`** | 这颗芯片当前完全是死的。已确认它**不是**夹爪（两个夹爪都已定位，见 §5）。如果它有用途，需要单独编 `ch341` 模块。若无用途，可以拔掉减少困惑 |
-| D2 | ~~**Orbbec 深度相机没有驱动**~~ → **2026-08-11 部分证伪。`Driver=[none]` 对这颗是正常的** | `2bc5:069f ORBBEC Depth Sensor` @ `1-3.2`（serial `CH7PB4200C8`）确实 `Driver=[none]`、确实**没有 video 节点** —— 但那是因为它是 **vendor class（`bInterfaceClass 0xFF`）走 OpenNI/libusb 的设备**，本来就不该有内核驱动或 `/dev/video*`。实测已取到深度流：**640×400@15Hz**，`fx=fy=306.44, cx=317.28, cy=195.87`，FOV 92.5°×66.3°，**只有 depth+IR 没有 RGB** | 🟠 **这条是 D3 那个推理错误的重犯**（「`Driver=[none]` ⇒ 功能不可用」）—— 同一份清单里连着两条栽在同一个坑，所以那条元教训值钱：**测你关心的量（有没有帧），不要测它的代理（驱动绑定 / video 节点）**。起节点必须显式 `depth_height:=400`（厂商 launch 默认 480 是**无效值**）+ `publish_tf:=false`；udev 规则已装，免 root。✅ **08-11 定案：就是 08-10 那颗，被挪到了右腕**（操作者口述两次：「同一颗，我把它挪到右手了」「右手算了就不连接了以后也不用，右手已经有双目了」）。所以「`1-3.2` 从 08-10 就被占着」和「右手新加了一个」不矛盾 —— **换的是安装位置，不是设备**；「双目」是它两颗 IR 镜头的外观。⚠️ 这是**操作者证词，不是仪器测量**（我自己那两个判据都是坏的，见 `../PITFALLS.md` §48）。右腕的单目 UVC 为装它而拆除且**永久不再装回**。`/chassis_{left,right}_camera` 深度话题来自 ECU，不是这颗 |
-| D3 | ~~ZED HID 接口无驱动 → IMU 拿不到~~ → **已证伪** | `2b03:f881 ZED-2i HID INTERFACE` @ `1-2.2` 确实 `Driver=[none]`（内核层面是真的），但 **`/zed/zed_node/imu/data` 实测 ~99 Hz**（2026-08-10）| ✅ **IMU 是可用的。** ZED SDK 自己拿 `hidraw`，不需要内核 usbhid 驱动。「`Driver=[none]` ⇒ 功能不可用」这个推理在这里是错的 —— 这正是 `PITFALLS.md` 元教训 5「测你关心的量，不要测它的代理」的一个实例：该测话题频率，不是测驱动绑定 |
+| D2 | ~~**Orbbec 深度相机没有驱动**~~ → **2026-08-11 部分证伪。`Driver=[none]` 对这颗是正常的** | `2bc5:069f ORBBEC Depth Sensor` @ `1-3.2`（serial `CH7PB4200C8`）确实 `Driver=[none]`、确实**没有 video 节点** —— 但那是因为它是 **vendor class（`bInterfaceClass 0xFF`）走 OpenNI/libusb 的设备**，本来就不该有内核驱动或 `/dev/video*`。实测已取到深度流：**640×400@15Hz**，`fx=fy=306.44, cx=317.28, cy=195.87`，FOV 92.5°×66.3°，**只有 depth+IR 没有 RGB** | 🟠 **这条是 D3 那个推理错误的重犯**（「`Driver=[none]` ⇒ 功能不可用」）—— 同一份清单里连着两条栽在同一个坑，所以那条元教训值钱：**测你关心的量（有没有帧），不要测它的代理（驱动绑定 / video 节点）**。起节点必须显式 `depth_height:=400`（厂商 launch 默认 480 是**无效值**）+ `publish_tf:=false`；udev 规则已装，免 root。✅ **08-11 定案：就是 08-10 那颗，被挪到了右腕**（操作者口述两次：「同一颗，我把它挪到右手了」「右手算了就不连接了以后也不用，右手已经有双目了」）。所以「`1-3.2` 从 08-10 就被占着」和「右手新加了一个」不矛盾 —— **换的是安装位置，不是设备**；「双目」是它两颗 IR 镜头的外观。⚠️ 这是**操作者证词，不是仪器测量**（我自己那两个判据都是坏的，见 `../operations/pitfalls.md` §48）。右腕的单目 UVC 为装它而拆除且**永久不再装回**。`/chassis_{left,right}_camera` 深度话题来自 ECU，不是这颗 |
+| D3 | ~~ZED HID 接口无驱动 → IMU 拿不到~~ → **已证伪** | `2b03:f881 ZED-2i HID INTERFACE` @ `1-2.2` 确实 `Driver=[none]`（内核层面是真的），但 **`/zed/zed_node/imu/data` 实测 ~99 Hz**（2026-08-10）| ✅ **IMU 是可用的。** ZED SDK 自己拿 `hidraw`，不需要内核 usbhid 驱动。「`Driver=[none]` ⇒ 功能不可用」这个推理在这里是错的 —— 这正是 `../operations/pitfalls.md` 元教训 5「测你关心的量，不要测它的代理」的一个实例：该测话题频率，不是测驱动绑定 |
 | D4 | 系统长期过载 | `loadavg 31.25 30.76 32.31` / 14 核 ≈ **2.2×** | 这是 ZED 降到 15 Hz 的根因之一。任何时序敏感的实验前先 `top` 看一眼谁在吃 CPU |
 | D5 | `sudo` 每次报 host 解析失败 | `sudo: unable to resolve host tegra-ubuntu` | 补 `/etc/hosts`：`127.0.1.1 tegra-ubuntu` |
 | D6 | 数采配置有未填占位符 | `/home/astrabot/deploy/data_collection.yaml` 里 `<YOUR_ZED_SERIAL>` `<YOUR_ROBOTD_SERVER_IP>` `<YOUR_SKILL_CONFIG_PATH>` `<YOUR_LAKEFS_ENDPOINT_URL>` `<YOUR_NAME>` | **需要人来填**，我没法猜。不填数采跑不起来 |
-| D7 | ~~`Astrabot_ZED` 处于 failed 且当前没跑~~ → **已修复** | 2026-08-10 实测 `systemctl is-active` = `active`，`rgb .../compressed` 11.0 Hz、`depth_registered` 8.5 Hz、`imu/data` 99 Hz | ✅ 正常。修法就是 `systemctl reset-failed Astrabot_ZED && systemctl start Astrabot_ZED`，**别用手工 `setsid nohup`**（会落在 domain 0，见 §0）。⚠️ 它 **独占相机**，所以直接 `sl.Camera().open()` 必然失败 —— 那是设计如此，不是相机坏，见 `../PITFALLS.md` §5 |
+| D7 | ~~`Astrabot_ZED` 处于 failed 且当前没跑~~ → **已修复** | 2026-08-10 实测 `systemctl is-active` = `active`，`rgb .../compressed` 11.0 Hz、`depth_registered` 8.5 Hz、`imu/data` 99 Hz | ✅ 正常。修法就是 `systemctl reset-failed Astrabot_ZED && systemctl start Astrabot_ZED`，**别用手工 `setsid nohup`**（会落在 domain 0，见 §0）。⚠️ 它 **独占相机**，所以直接 `sl.Camera().open()` 必然失败 —— 那是设计如此，不是相机坏，见 `../operations/pitfalls.md` §5 |
 | D8 | 控制器日志有 getActuatorIndex 异常 | `[FATAL] mainThread: id 82/92/109, getActuatorIndex -1 exception` | id 82/92/109 不在 §4 那 14 个里，也不是夹爪的 101/102。**尚未查清是谁在问这些 id**，待排 |
 | D9 | `/dev/ttyAMA4` 用途不明 | 6 波特率 × 5 slave id 只读扫描全静默 | 可能是预留口，也可能对面设备没上电。**不要假设它是空的**就拿去接别的东西 |
-| D10 | ~~手臂 `/joint_states` 单位不是弧度~~ → **已证伪。真正的缺陷是：控制器收到第一条指令之前，手臂反馈是未锁存的无效值** | `scripts/arm_unit_probe.py` 实测：指令 +0.174533 rad → 反馈增量 +0.174526，**系数 1.0000 = 弧度**；发过第一条指令后 14 路全部落到 ±0.000006 并稳住（1530 帧，极差 3 µrad） | 🟠 **仍然危险，但危险点变了**：`报出值 × 减速比` 恒为 95.8738 整数倍那套算术是**冷启动**现象，不是单位问题。**规则：先发一条指令，再信反馈。** 绝不要在控制器刚起来时用 `/joint_states` 构造「保持当前位姿」—— 那正是把 `left_arm_6` 发到 544°（限位 ±1.57 rad）的方式。安全起点是全 14 路发常量 `0.0`。详见 `01_goal.md` §5.2 |
+| D10 | ~~手臂 `/joint_states` 单位不是弧度~~ → **已证伪。真正的缺陷是：控制器收到第一条指令之前，手臂反馈是未锁存的无效值** | `scripts/arm_unit_probe.py` 实测：指令 +0.174533 rad → 反馈增量 +0.174526，**系数 1.0000 = 弧度**；发过第一条指令后 14 路全部落到 ±0.000006 并稳住（1530 帧，极差 3 µrad） | 🟠 **仍然危险，但危险点变了**：`报出值 × 减速比` 恒为 95.8738 整数倍那套算术是**冷启动**现象，不是单位问题。**规则：先发一条指令，再信反馈。** 绝不要在控制器刚起来时用 `/joint_states` 构造「保持当前位姿」—— 那正是把 `left_arm_6` 发到 544°（限位 ±1.57 rad）的方式。安全起点是全 14 路发常量 `0.0`。详见 ADR 0003 所述的已删文档 |
 | D11 | **全机没有力 / 力矩 / 接触反馈** | `effort` 在 16 个关节上全是 `.nan`；夹爪状态数组里 `running/temp/error` 在 `g2_gripper_node.py` 里**硬编码为 0**，只有 `pos_mm` 是真传感器 | 不能靠触碰探测桌高；不能对夹持力闭环（`force_cmd` 是开环丢给固件）。**唯一可用的接触代理**：命令开口 vs 实际 `pos_mm`，卡住比命令值宽 = 指间有东西（`scripts/gripper_cmd.py --ramp` 已实现） |
 | D12 | 头部看不到自己的工作区 | `head_pitch` 必须压到 **+40° 限位**，ZED 视野才和手臂可达区有交集；居中所需的角度**超出限位** | 桌面精细判定只能靠**腕部相机**，不能指望头部 ZED。这条反向约束了判定器设计，见 `09_*.md` §1 |
-| **D13** | **ZED 自己那棵 TF 会整棵消失，而图像话题照发**（2026-08-11 新增） | 08-10 16:22 起持续一整夜：机体 TF 完好、`/zed/.../image/compressed` 正常在发，但 **6 个 zed frame 一个都没有**，感知报拿不到 `base_link ← zed_camera_link`。哑掉的是 `zed_state_publisher` | 🔴 **判据是「数 zed frame 个数」（正常 6，`<5` 即故障），不是看图像 Hz。** `tf2_echo base_link zed_camera_link` 会**误报正常**。修法：`systemctl restart Astrabot_ZED.service`（~45 s 后复验）。这条故障期间 `xr1.py status` 一直全绿 —— 因为它只查图像话题，现已修进 `xr1_verify.py`（`../PITFALLS.md` §38）|
-| **D14** | **串口设备节点会被重新枚举，而持有它的驱动进程照样活着**（2026-08-11 新增） | 08-11 **00:04** `/dev/ttyAMA5`(204,69) 与 `/dev/ttyUSB0`(188,0) 被重新创建；`g2_gripper_node` (pid 487809) 启动于此之前，`fuser -v` 显示它仍占着这两个节点，但读回全静默。**`SIGTERM` 无效**（阻塞在串口 read 上） | 🔴 **只有 `kill -9`。** 判据是**比时间戳**：`ls -l /dev/tty*` 的创建时间 vs `ps -o lstart= -p <pid>` —— **设备比进程新 ⇒ 废 fd**。⚠️ `xr1.py bringup` 在这个状态下**修不了**：它的存在判据是 `pgrep`，进程在就不重拉（它会如实打印 `STILL SILENT`，但那容易被读成"再等等"）。元教训：**「进程在」≠「设备可用」**（`../PITFALLS.md` §39）|
-| **D15** | **两个 URDF 里腕相机 `origin` 左右完全相同，而关节轴是镜像的**（2026-08-11 新增） | 左右都是 `xyz="0 -0.0768 0.0995"`（rpy 也一样），而 `axis` 一侧 `0 1 0`、另一侧 `0 -1 0`。左右对称机械上 y 应当反号 ⇒ **至少一侧 y 符号错**，量级 ~2×76.8 = **154 mm**。而且全机搜不到这个数的出处（§28：谁量的没人记录） | 🔴 **不要在它上面建手眼标定。** 腕相机是唯一绕开 `head_yaw` 半米误差链的通道，所以这条很要紧。`scripts/teleop_truth.py` 顺带存了腕相机 TF + 两路腕相机图，可以把它**拟合**出来再用（`../PITFALLS.md` §28/§44）|
+| **D13** | **ZED 自己那棵 TF 会整棵消失，而图像话题照发**（2026-08-11 新增） | 08-10 16:22 起持续一整夜：机体 TF 完好、`/zed/.../image/compressed` 正常在发，但 **6 个 zed frame 一个都没有**，感知报拿不到 `base_link ← zed_camera_link`。哑掉的是 `zed_state_publisher` | 🔴 **判据是「数 zed frame 个数」（正常 6，`<5` 即故障），不是看图像 Hz。** `tf2_echo base_link zed_camera_link` 会**误报正常**。修法：`systemctl restart Astrabot_ZED.service`（~45 s 后复验）。这条故障期间 `xr1.py status` 一直全绿 —— 因为它只查图像话题，现已修进 `xr1_verify.py`（`../operations/pitfalls.md` §38）|
+| **D14** | **串口设备节点会被重新枚举，而持有它的驱动进程照样活着**（2026-08-11 新增） | 08-11 **00:04** `/dev/ttyAMA5`(204,69) 与 `/dev/ttyUSB0`(188,0) 被重新创建；`g2_gripper_node` (pid 487809) 启动于此之前，`fuser -v` 显示它仍占着这两个节点，但读回全静默。**`SIGTERM` 无效**（阻塞在串口 read 上） | 🔴 **只有 `kill -9`。** 判据是**比时间戳**：`ls -l /dev/tty*` 的创建时间 vs `ps -o lstart= -p <pid>` —— **设备比进程新 ⇒ 废 fd**。⚠️ `xr1.py bringup` 在这个状态下**修不了**：它的存在判据是 `pgrep`，进程在就不重拉（它会如实打印 `STILL SILENT`，但那容易被读成"再等等"）。元教训：**「进程在」≠「设备可用」**（`../operations/pitfalls.md` §39）|
+| **D15** | **两个 URDF 里腕相机 `origin` 左右完全相同，而关节轴是镜像的**（2026-08-11 新增） | 左右都是 `xyz="0 -0.0768 0.0995"`（rpy 也一样），而 `axis` 一侧 `0 1 0`、另一侧 `0 -1 0`。左右对称机械上 y 应当反号 ⇒ **至少一侧 y 符号错**，量级 ~2×76.8 = **154 mm**。而且全机搜不到这个数的出处（§28：谁量的没人记录） | 🔴 **不要在它上面建手眼标定。** 腕相机是唯一绕开 `head_yaw` 半米误差链的通道，所以这条很要紧。`scripts/teleop_truth.py` 顺带存了腕相机 TF + 两路腕相机图，可以把它**拟合**出来再用（`../operations/pitfalls.md` §28/§44）|
 
 ## 12. 复查命令速查
 

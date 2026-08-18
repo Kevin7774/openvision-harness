@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Fail if any relative markdown link in the docs points at a file that isn't there.
+# Docs that name files which don't exist are how this workspace wasted a week.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+fail=0
+while IFS=: read -r src _ target; do
+  [ -e "$(dirname "$src")/${target%%#*}" ] || { echo "BROKEN $src -> $target"; fail=1; }
+done < <(grep -rHnoE '\]\([^)#][^)]*\)' --include='*.md' README.md AGENTS.md docs \
+         | grep -v '/target/' \
+         | sed -E 's/\]\((.*)\)$/\1/' \
+         | grep -vE ':(https?|mailto):')
+[ $fail -eq 0 ] && echo "all doc links resolve"
+exit $fail

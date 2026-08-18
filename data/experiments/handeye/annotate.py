@@ -2,7 +2,7 @@ import os,sys,threading,time,numpy as np,cv2,rclpy,tf2_ros,math
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, CameraInfo
-sys.path.insert(0,"/home/astrabot/workspace/zed_ws/scripts")
+sys.path.insert(0,"/home/astrabot/workspace/py")
 from handeye_block import Sensors, find_block, quat_to_R, project
 from grasp_block import TIP_CENTER, COLOR_RANGES, ZED_OPTICAL_FRAME
 threading.Thread(target=lambda:(time.sleep(90),sys.stdout.flush(),os._exit(9)),daemon=True).start()
@@ -33,6 +33,6 @@ pu,pv=int(round(pred[0])),int(round(pred[1]))
 cv2.line(img,(pu-40,pv),(min(pu+40,img.shape[1]-1),pv),(255,0,255),2)
 cv2.line(img,(pu,pv-40),(pu,pv+40),(255,0,255),2)
 cv2.putText(img,"FK pred",(max(0,pu-120),pv-14),0,0.7,(255,0,255),2)
-cv2.imwrite("/home/astrabot/workspace/zed_ws/experiments/handeye/zed_annotated.png",img)
+cv2.imwrite("/home/astrabot/workspace/data/experiments/handeye/zed_annotated.png",img)
 print("存 zed_annotated.png  洋红十字=FK 预测的手中积木位置")
 sys.stdout.flush(); os._exit(0)

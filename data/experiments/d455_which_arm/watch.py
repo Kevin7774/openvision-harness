@@ -10,7 +10,7 @@ import numpy as np, rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 
-OUT = "/home/astrabot/workspace/zed_ws/experiments/d455_which_arm/watch.jsonl"
+OUT = "/home/astrabot/workspace/data/experiments/d455_which_arm/watch.jsonl"
 DEADLINE_S = float(sys.argv[1]) if len(sys.argv) > 1 else 60.0
 
 
