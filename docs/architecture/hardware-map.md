@@ -309,6 +309,12 @@ udev 规则里必须带它，否则符号链接会随机指到 metadata node 上
 **没有 `/dev/r_arm_cam`** —— 右腕原来那台 DECXIN 单目已拆（为装 DaBai DW2），
 DW2 是 libusb 厂商类设备，**不出 `/dev/video*`**，只能走 ROS 话题。
 
+DW2 **没有 RGB**，这是器件本身的硬结论，不是驱动没配好：OrbbecSDK 自己在
+`OpenNISensorIO.cpp:65` 打印 `Image endpoint is not supported...`（2026-08-11
+18:14:10 的 SDK 日志），USB 侧也只列出一路 Depth interface。所以
+`enable_color:=true` 传给 launch 会被静默丢掉，不会报错。它已由右腕 D455 替代
+（见第 9 节），本条留着是因为拆下来的器件还在。
+
 改完 udev 后生效：`sudo udevadm control --reload && sudo udevadm trigger`。
 
 ## 8. ros2_control 现状

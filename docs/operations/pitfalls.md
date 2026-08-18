@@ -740,6 +740,404 @@ pyzed 原生 API 只在确实需要时用,那时才 `systemctl stop`(记得起�
 
 ---
 
+## 49. DW2 在发真深度,但它的 frame 不在 TF 树里 —— 不是"外参不准",是图里没这条边
+
+2026-08-11 17:50 实测(只读,摇操运行中):
+
+| 量 | 值 |
+|---|---|
+| 话题 | `/camera/depth/image_raw`(还有 `/camera/ir/*`),节点 `/camera/camera` |
+| 帧率 | **14.9 Hz**(IR 14.8) |
+| 分辨率 / 编码 | **640×400**,`16UC1`(单位 mm) |
+| 有效像素 | **90.3%**(231296/256000) |
+| 深度范围 | **834 ~ 2613 mm**,中位 **1264 mm**;画面中心 40×40 全有效、中位 1298 mm |
+| **frame_id** | **`camera_depth_optical_frame`** |
+
+**`camera_depth_optical_frame` 不在 TF 的 39 个 frame 里。**
+
+```
+tf2_echo base_link camera_depth_optical_frame
+  → Invalid frame ID "camera_depth_optical_frame" — frame does not exist
+```
+
+⚠️ **`grep camera_depth_optical_frame` 会骗你**:它命中的是
+`chassis_left_camera_depth_optical_frame`(底盘那台,9.4 Hz,**这台的 frame 是齐的**)。
+判据必须是全等匹配或 `tf2_echo`,不能用子串。
+
+**为什么这比"外参标错"更严重**:标错了至少还有一条边可以修正。这里**根本没有边** ——
+640×400 的深度值相对 `base_link` 在几何上没有意义,任何像素都变不成机器人能去的坐标。
+补它要 6 个数(安装位姿),**一个都没量过**;而且**它装在左腕还是右腕目前只有操作者口述**
+(§48 那次 300 s 相关性实验期间手臂没动过,判定不了)。
+
+**连带的一条风险(未测)**:整帧最近像素是 **834 mm**,而抓取时积木离腕部只有
+100~300 mm。若 DW2 最小工作距离≈800 mm,它在**抓取瞬间是瞎的**,只能远距引导。
+测法:把手伸到积木上方 15 cm,看有没有有效像素。**2 分钟,但需要摇操停。**
+
+**同时记下的旁证**:全机 **0 个 `PointCloud2` 话题** —— 点云只来自
+`Astrabot_ZED_Points.service`,它现在 `failed`(为摇操让路),zed frame 只剩 **1 个**(正常 6)。
+所以"头部 ZED 带点云"这句话在摇操运行期间**是不成立的**。
+
+### 反过来,这一天最有用的发现:积木已经在手里 = 标定可自动化
+
+手里夹着的积木,位置由 FK 已知(指尖中点),而 ZED 和 DW2 **都能看到同一个刚体**。
+让手臂自己摆 5~6 个位姿,每个位姿同时记
+`(FK 指尖中点, ZED 像素+深度, DW2 深度)` ⇒ **一次同时解出两台相机的外参**。
+这把手眼标定从"需要人反复瞄准"降级成"让机器人自己摆姿势",**不再需要人在环**。
+
+---
+
+## 50. `Astrabot_ZED.service` failed 的根因可能在 **USB 接口的驱动绑定**上,而不在 zed_wrapper
+
+2026-08-11 18:03 实测。17:57 我刚把 ZED 起好(6 个 zed frame、2 个点云话题,
+背景等待器 8 s 就报就绪),18:06 再用时**两个 ZED 服务都是 `failed`**,
+而 `ros2 topic list` 里 3 个 zed 话题**还在**(陈旧发现,`topic hz` 一个都不出数)。
+
+### 判据链(照这个顺序问,4 步定位)
+
+```bash
+systemctl status Astrabot_ZED.service --no-pager -n 25     # 1) 看是哪个 ExecStartPre 退非零
+lsusb | grep -i 2b03                                       # 2) 相机在不在 USB 上(f880 视频 + f881 HID)
+echo 1 | sudo -S /usr/local/bin/prepare-zed-usb.sh         # 3) 让它自己说话
+# 4) 数 f881 那个接口的 driver
+for d in /sys/bus/usb/devices/*; do [ -f "$d/idVendor" ] || continue
+  [ "$(cat $d/idVendor)" = 2b03 ] || continue
+  for i in "$d":*; do [ -d "$i" ] &&
+    echo "$(basename $i) class=$(cat $i/bInterfaceClass) driver=$(basename $(readlink -f $i/driver))"; done; done
+```
+
+本次的读数:
+
+| 项 | 值 | 含义 |
+|---|---|---|
+| `ExecStartPre=/usr/local/bin/prepare-zed-usb.sh` | **status=1/FAILURE** | 相机还没被打开就挂了 |
+| `restart counter is at 5` → `Start request repeated too quickly` | — | 所以最终态是 failed 而不是 restarting |
+| `lsusb` | `2b03:f880` + `2b03:f881` **都在** | **不是掉线,不是线松** |
+| 脚本自述 | `ZED HID interface is already owned by another process: 1-2.2:1.0` | 就是它 |
+| `1-2.2:1.0` | class=03 **driver=usbfs** | 有进程用 **libusb** 绑走了 HID 接口 |
+| `2-1:1.0/1.1` | class=0e driver=uvcvideo | 视频接口反而是好的 |
+
+**`driver=usbfs` = 某个 libusb 进程持有它**;正常态是 `driver=usbhid`。
+
+> ⚠️ **修正(另一会话 18:19 实测):`driver=usbfs` 本身不是故障判据 —— 它也是
+> ZED 服务正常运行时的常态。** 我在 dora 全停、服务 `active`、**6 个 zed frame 都在**
+> 的状态下量到 `1-2.2:1.0 class=03 driver=usbfs`,持有者是
+> `component_container_isolated`(pid 14171)—— **zed_wrapper 自己**。
+> 也就是说 `usbhid` 只是 **`prepare-zed-usb.sh` 跑完、相机还没被打开** 那个瞬间的状态;
+> 一旦 wrapper 打开相机,它自己就用 libusb 把 HID 接口绑成 usbfs。
+> 所以 **必须解析持有者是谁**(下面那段 `/proc/*/fd` 扫描),
+> 不能看到 usbfs 就断定"被抢了" —— 否则会在健康的系统上"修"出故障来。
+> 这正是本文件元教训 5 的又一例:**测你关心的量(谁持有),不要测它的代理(绑到哪个驱动)**。
+>
+> 好消息是**恢复不需要人工**:持有者一死,接口的 driver 变成 `""`,
+> `prepare-zed-usb.sh` 会自己 bind 回 usbhid。所以让路之后只要
+> `systemctl reset-failed Astrabot_ZED.service && systemctl start Astrabot_ZED.service`
+> 就够了(18:13 实测:20 s 后 active,30 s 后 6 个 zed frame 齐)。
+`prepare-zed-usb.sh` 的逻辑就是:`""` → 重新 bind 回 usbhid;**`usbfs` → 直接 `return 1` 放弃**
+(它刻意不抢,因为抢了会把对方搞崩)。所以这个失败是**设计出来的让路**,不是 bug。
+
+### 找持有者
+
+```bash
+for f in /proc/[0-9]*/fd/*; do t=$(readlink "$f" 2>/dev/null) || continue
+  case "$t" in */bus/usb/001/004*) p=${f#/proc/}; ps -o pid=,lstart=,cmd= -p "${p%%/*}";; esac; done
+```
+(`001/004` 从 `lsusb` 那行的 Bus/Device 号来。)本次抓到
+`python -m hardware.devices.sensors.camera.single_zed_node`,启动时刻 18:02:28 ——
+**厂商 dora 采集栈的 ZED 节点**,由**另一个 Claude 会话**(pts/5)在 18:02:25 拉起。
+
+### 为什么这条值得单独记:它和 §38 长得不一样,修法相反
+
+| | §38(zed frame 集体消失) | §50(本条) |
+|---|---|---|
+| 服务状态 | **active** | **failed** |
+| 图像话题 | 照常在发 | `topic hz` 出不来数 |
+| zed frame 数 | 1(正常 6) | 1(正常 6) |
+| 根因 | zed_state_publisher 哑了 | HID 接口被 libusb 抢走 |
+| 修法 | `systemctl restart Astrabot_ZED.service` | **restart 一万次也没用**,必须先让持有者松手 |
+
+**"zed frame 只剩 1 个"这一个症状对应两种完全不同的病**,
+所以下手前必须先看 `systemctl is-active` —— active 走 §38,failed 走本条。
+
+### 同机多会话:这是**别人的进程**,不能直接 kill
+
+`ListAgents` 显示本机还有 2 个 Claude 会话在跑。抢占前用 `SendMessage` 问一句,
+理由和 §29(外置录制器)完全同类:**独占资源上,静默抢占会让对方的试验作废且毫无痕迹**。
+反向也成立 —— 我 17:57 起 ZED 的时候如果对方正要起 dora,我就是那个抢的人。
+
+**祖先链能定位是谁干的**,比猜快得多:
+```bash
+pid=<PID>; while [ "$pid" != 1 ]; do ps -o pid=,ppid=,lstart=,cmd= -p $pid; \
+  pid=$(ps -o ppid= -p $pid|tr -d ' '); done      # 一直走到 sshd,就知道是哪个 pts
+```
+
+### 附带确认:积木还夹着
+
+`/qg_robot/gripper_right_state` = `[124, 0, 0, 0]` —— dora 起来了、ZED 被抢了,
+但**右爪没松**,§49 末尾那个"积木在手里 ⇒ 标定可自动化"的基准仍然有效。
+唯一能毁掉它的动作是**开右夹爪**(给 `teleop_gripper_float` 0.0);
+手臂随便动都不要紧,FK 跟着走。已就此给对方会话发了明确提醒。
+
+## 51. 重启厂商 dora 采集图要**三个**前置条件,而且每次报错都指向错误的方向
+
+2026-08-11 18:00 重启 `astrabot_data_collection_xr1_evt2.yml` 花了**四次**才成功。
+三个条件缺一不可,报错却没有一次指向真凶:
+
+| # | 前置条件 | 缺了的报错 | 为什么误导 |
+|---|---|---|---|
+| 1 | `export PATH=/home/astrabot/deploy/.venv/bin:$PATH` | 每个 python 节点 `ModuleNotFoundError: No module named 'hardware'` | yml 写的是 `path: python` —— **裸名,从 PATH 解析**。直接调 `./.venv/bin/dora` 二进制时它解析成 `/usr/bin/python`。报错像"包没装",其实是**解释器选错** |
+| 2 | `export ROS_DOMAIN_ID=12` | `control_astrabot` 抛 `[astrabot_robot_controller]: failed to connect TF`(前面刷一堆 SHM 错,10 s 后抛) | 看着像 TF 挂了(§38 那个故障)。实测 `/tf`+`/tf_static` 都在、`rsp` 活着 —— 它只是在 **domain 0** 上看了个空图。**那几行 `RTPS_TRANSPORT_SHM ... open_and_lock_file failed` 是噪音**,我照着它去查 `/dev/shm` 白花了一轮 |
+| 3 | 先 `sudo -A systemctl stop Astrabot_ZED.service Astrabot_ZED_Points.service` | `eye_zed` 抛 `Failed to open ZED camera: CAMERA NOT DETECTED` | 听着像相机掉了 —— 但 `lsusb` 里它明明在。见下 |
+
+**我最初判断"dora 侧不走 ROS,所以不用设 domain"的依据是错的:**
+我 grep 了 `robot_runtime/` 没找到 `rclpy` 就下了结论。但 `control_astrabot` 来自
+**另一个包、另一个 venv**(`/opt/astrabot/venv312` 的 `hardware.robots.astrabot`),
+它 `import rclpy` + `rclpy.spin` + `_wait_for_tf()`,代码里不写死 domain,**全靠环境继承**。
+**教训:"这个栈用不用 ROS"不能只查一个包。**
+
+### 🔴 `Astrabot_ZED.service` 是 `Restart=always` + `RestartUSec=100ms`
+
+**dora 一松手,systemd 在 100 ms 内就把 ZED 抢回去。** 实测:我 17:56 拆完图,
+服务的 `ActiveEnterTimestamp` 就是 **17:57:42**,journal 显示是自动重启不是人为。
+所以「dora 抢得比服务快」是**不可能成立**的,必须**显式 `systemctl stop`**
+(显式 stop 不触发 `Restart=always`)。
+
+原来 SKILL trap 6/24 只写了反方向那半句(「dora 跑着时别 `systemctl start` ZED」),
+**漏了这半句** —— 于是拆图之后的窗口里服务自动回来,下一次启动必然失败。
+⚠️ 停 ZED 服务是**对外动作**:整张 ROS 图上 `/zed/...` 全消失,别人的感知脚本会瞎。
+(`Astrabot_ZED_Points` 本来就是 `failed`,不是停 ZED 造成的。)
+
+**正确的启动命令:**
+
+```bash
+sudo -A systemctl stop Astrabot_ZED.service Astrabot_ZED_Points.service
+cd /home/astrabot/deploy
+export ROS_DOMAIN_ID=12 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export VIRTUAL_ENV=/home/astrabot/deploy/.venv PATH=/home/astrabot/deploy/.venv/bin:$PATH
+.venv/bin/dora run .astra/astrabot_data_collection_xr1_evt2.yml
+```
+
+### 拆图:按名字 `pgrep` 一定漏,而 `pkill -f` 会杀掉你自己
+
+`dora run` 被 SIGTERM 收掉后,**10 个子节点全部孤儿化(ppid→1)继续跑**,
+而它们的模块名各不相同。我按模式列表杀了**三轮**才干净(每轮都以为干净了),
+漏掉的旧 `control_astrabot` 实例还让我把新实例的 `failed to connect TF`
+**误诊成"旧实例占着端口"** —— 一个完全错误的因果。
+
+可靠的枚举是**按启动时刻的 PID 段**(同一次 `dora run` 的子进程 PID 连号):
+
+```bash
+ps -eo pid=,lstart=,cmd= | awk '$1>=2748600 && $1<=2749000'
+```
+
+而 `pkill -f <模式>` / `pgrep -f <模式>` **会匹配到你自己这条命令行**并把 shell 杀掉。
+SKILL trap 5 只对 `g2_gripper_node` 写了 `g2_gripper[_]node` 的括号技巧,
+但这是**通用问题**:我在同一个会话里**栽了两次**(第二次是
+`'robotd_bin/robot_daemon'`、`'robot_control_node_odom'` 这几个我忘了加括号的模式)。
+稳妥写法是**显式排除自己**,别靠记得加 `[ ]`:
+
+```bash
+me=$$; ps -eo pid=,cmd= | grep -E "$pats" | grep -v ' grep ' | awk -v m=$me '$1!=m{print $1}'
+```
+
+### 验证必须用正面判据 —— 「没有报错行」和「压根没起来」输出一模一样
+
+`log_left_wrist.txt` 里那条 `[webcam] ... driver negotiated WxH@F` **只在协商失败时**打印。
+所以"日志里没有 `[webcam]` 行"既可能是"正常打开",也可能是"节点没起来日志是空的"。
+**我拿它当成功判据误判过一次**(§16 同一类错)。能用的正面判据:
+
+- `grep 'Camera successfully opened' log_eye_zed.txt`
+- `grep 'Setup completed' log_control_astrabot.txt` ← TF 真接上了
+- `ls -l /proc/<webcam pid>/fd/3` 指向 `/dev/videoN` 且**不带 `(deleted)`**(§39/§48b)
+- **别用 `/proc/<pid>/fdinfo/3` 的 `pos:`** —— V4L2 字符设备偏移**恒为 0**,零分辨力。
+  用 **CPU 时间增长**:实测 `left_wrist` 6 s 涨 127 ticks(≈21% 核,在解 MJPEG),
+  而黑帧的 `right_wrist` 也涨 71 ticks(≈12% 核)—— 后者说明**失败的那一路不是空转**。
+
+### 附带定案:右腕永久只有 DW2,`right_wrist` 通道从此是黑帧
+
+操作者 2026-08-11 定案「右手算了就不连接了以后也不用,右手已经有双目了」。
+所以 §48 那条"两个口都映射到 `l_arm_cam`"的 udev 规则**是永久的**,
+中途因"相机还在腕上只是线拔了"打算改回按口区分,被这句推翻,**没有改**。
+而 `webcam_node.py` 打不开设备**不退出**,填黑图照样 `send_output` ⇒
+**黑帧会被当正常图像录进数据集**。恒黑通道**不像左右对调那样有毒**(只是白占容量),
+但它会**焊进数据集 schema**:先录 N 条再删节点,前后两批不兼容 —— 要删就趁早。
+
+---
+
+## 52. 腕部相机看的是爪子**前方**,不是爪子**下方** —— 别拿 `wrist_scan` 的"0 px 黄色"判"积木不在"
+
+2026-08-12 16:0x,我自己刚踩进去又爬出来的一个:差一步就把整个像素闭环方案否掉。
+
+`experiments/wrist_scan/20260812-151749`(扫 y)和 `20260812-152310`(扫 x)
+两组扫描,在 ZED 报的目标位附近**每一行都是 0 px 黄色**,而少数出数的行
+`Z_mm` 是 **10975 / 11853** —— 十一米。当时的推论是"积木根本不在那儿 / 已被推出可达带",
+按这个推论下一步就该去重标外参而不是写闭环。**推论是错的,数据没错。**
+
+### 判据:准心在哪,一张图就够
+
+`experiments/20260812-07/hold_wrist.jpg`(抓取位、爪全开、爪下空桌面)做 orange 连通域:
+两片夹垫质心 **(110.0, 405.4)** 和 **(460.7, 406.3)**,中点 **(285.4, 405.9)**。
+画面 640×480 ⇒ 两指中点在**画面下缘**,离画面中心竖直差 **166 px**。
+夹垫上方那整幅画面拍的是夹爪**前方**一路铺开去的桌子。
+
+于是那两组扫描的读数全都自洽:
+- 爪下那块(准心附近)只剩 74 px 的余量,积木稍微偏向机器人这侧就直接出画 ⇒ **0 px**;
+- 画面主体是远处 ⇒ 偶尔出数的"黄色"是**远墙**,所以 Z=11~12 m。
+
+| | 我当时的读法 | 实际 |
+|---|---|---|
+| 0 px 黄色 | 目标位没有积木 | 目标在准心那一侧的**画外** |
+| Z=11.9 m 的黄色 | 深度乱了 | 远墙,深度是对的 |
+| 该做什么 | 重标手眼 | 把准心当基准写闭环 |
+
+### 连带修掉的一个**闸门 bug**(比误判本身值钱)
+
+`--wrist-off-max 0.5` 原先比的是**离画面中心**的偏移。一块**正对准两指中点**的积木
+读出来是 `off_center=(-0.109, +0.692)` —— 0.692 > 0.5,**每一次瞄准正确的抓取都会被下降闸拒掉**。
+14:14 那次数据碰巧没暴露它(黄色只有 71 px,竖直偏心恰好 0.002,看着"居中",
+其实离准心 166 px)。现在闸门判 `off_aim`(离准心),`off_center` 只留着和历史日志可比。
+`scripts/test_wrist_aim.py` 把"正对准 ⇒ off_center>0.5"写成断言,防止有人把常数改回画面中心。
+
+### 元教训
+
+**"某个传感器没看到"只有在你知道它看的是哪儿之后才是证据。**
+外参没标出来(`wrist_extrinsics/20260812-150406-d455` 那 9 帧 `det` 全 null)
+不等于没有可用基准 —— 夹垫是相机自己画面里的刚性参照物,量一次一直有效,
+比标一次外参便宜得多。和 §33 同类:先确认视场,再解释视场里的空白。
+
+## 53. 手眼「修正」本身就是误差源 —— 一个自洽的 LOO 11.24mm 掩着 230mm 的反号偏移
+
+2026-08-12 17:03。上一节刚修好准心,接下来两次抓取分别被下降闸(§52 的正确闸门)
+和腕部闭环拒掉,理由都是"腕相机在抓取位一个黄色像素都看不到"。这一次**闸门没冤枉谁**:
+同一时刻的 ZED 照片里,**夹爪根本不在取景框内**,而积木清清楚楚在画面中央。
+
+链条上每一环都自称正确:检测像素 `px [764,433]` 落在积木上(圈画确认)、
+IK 残差 0.0mm、地板检查余隙 13mm、FK 反算指尖中点和目标残差 0.0mm。
+**两个"同一个坐标"不是同一个物理位置。**
+
+### 判据:让夹爪自己当标记物,不做任何拟合
+
+`scripts/zed_hand_probe.py`:把指尖停在桌面上方 90mm 的 5 个 **FK 已知**位姿,
+每个位姿拍一张 ZED,直接比「相机模型预测的夹垫像素」vs「夹垫实际出现的像素」。
+没有外参、没有拟合、没有深度,只有一个纯观测量。
+
+| | Δu 均值 (px) | 备注 |
+|---|---|---|
+| 套 `handeye/correction.json` | **+228.5** (std 47.5) | 5 个位姿**同号** |
+| 不套(原始相机模型) | **−9.6** (std 11.3) | 两片夹垫都可见的那两个位姿 +2.8 / −33.7 px ≈ 5~57mm |
+| 取反的修正 | −279.4 | 更差 |
+| 只用 M / 只用 t | +141.9 / +136.4 | 都更差 |
+
+折到目标上:黄积木 px(764,433) 修正后 (0.396,−0.435),**不修正 (0.382,−0.205)** ——
+差 **230mm**,正好是"手臂扑空、且连 ZED 取景框都没进"的那个量。
+`correction.json` 自称 `no_correction_loo_mm = 218.85`,**和实测反号**。
+
+### 为什么 LOO 11.24mm 骗得过去
+
+那 15 个样本全是**积木被举在空中**取的(z 0.857~1.023),而桌面抓取高度 0.8238 ——
+每一个真实目标在 z 上都是盒外外推。刚体拟合把"光心挪 [54.9,−133.6,−20.8]mm"
+拟得内部极其自洽:LOO 是**盒内自洽度,不是对世界的正确性**。
+留着同一批样本重新拟合、交叉验证、换个正则,永远看不出这件事。
+
+### 元教训
+
+**要推翻一个标定,不能靠重新拟合它自己的样本,只能靠一个链外的独立观测。**
+夹爪自己就是最便宜的那个观测:它的位姿 FK 已知、它在相机画面里显眼(橙垫)、
+它想停哪儿停哪儿。`USE_HANDEYE = False` 现在是默认值,理由写在
+`scripts/grasp_block.py` 那个开关上面;`experiments/handeye/correction.json` 作废但不删。
+
+⚠️ `zed_hand_probe.py` 的 `pads_px` 有个已知弱点:只看到一片夹垫时它会把桌上那个
+恒定的橙色果篮团(173.5, 202.2)拉进来平均,污染了 5 个位姿里的 0/1/3。
+**只有两片夹垫都可见的位姿(4、5)是无偏的** —— 上表的结论靠的是这两个 + 全体同号。
+
+## 54. 「中转点抬得够高就能绕过桌子」是错的 —— 通不通取决于 IK 解支,不是高度
+
+2026-08-12 18:0x。零位出发的关节直线必扫桌板(§43),已经写好的三条备用路线
+(`high_over_target` / `lateral_high→high_over_target` / `lateral_high`)**三条全废**。
+直觉上的下一步是"把中转点抬更高",于是离线(`/tmp/route_probe.py`,只用 URDF+IK+
+碰撞检查,不连机器人不跑感知,几秒一次)把 x=0.15 这根竖线上四个高度全试了一遍。
+
+目标 (0.360,−0.183),`gz=0.8238`,开合方向 45°,起点零位(指尖 z=0.353,**在桌面
+0.8108 以下**):
+
+| 中转点 | 高度 | 零位→中转 | 中转→预抓取 |
+|---|---|---|---|
+| `lateral_mid`    | gz+0.15 (0.974) | ✅ 通 | ✅ 通 |
+| `lateral_high`   | gz+0.30 (1.124) | ❌ `arm_5_link` 插进桌面 **273.8mm** @ 路点 3/21, x=+0.204 | ✅ 通 |
+| `lateral_higher` | gz+0.45 (1.274) | ✅ 通 | ✅ 通 |
+| `high_over_target` | gz+0.30, x=0.36 | ❌ `arm_6_link` **328.5mm** @ 路点 3/20 | ✅ 通 |
+| (直达) | — | ❌ `arm_7_link` **347.4mm** @ 路点 3/16 | — |
+
+**更低的 gz+0.15 通,中间的 gz+0.30 撞,更高的 gz+0.45 又通。** 不是单调的,所以
+"高度不够"解释不了它。撞的是那个高度上 `ik_center` 交出来的**解支**:同一个笛卡尔
+中转点有多个手腕/肘部构型,零位→它的关节直线扫过哪里由构型决定,和中转点自己的 z
+基本无关。四条失败的腿全部死在**路点 3/16~21(前 15%)、x≈0.20~0.26**,也就是刚
+迈过 `TABLE_X_MIN=0.2`、手臂还挂在身侧最低的那一瞬 —— 失败由**起点位形**主导,
+不由目标或中转点主导。
+
+### 修法(已落进 `grasp_block.py`)
+
+中转点列表多给两个同 x、不同高度的候选 `lateral_mid`(gz+0.15)和
+`lateral_higher`(gz+0.45),并在三条老路线之后各追加一条单中转点兜底路线。
+代价是每次多两次 `ik_center`(每次分钟级),换来的是不再整轮拒动。
+
+**不许做的两件事**(它们都会把拒动条件本身拆掉,而拒动这次是对的):
+调大 `plan_path` 的 `step_max`(只会让碰撞检查变稀,§43),或放宽
+`path_floor_check` / `tip_clear_mm`。
+
+### 元教训
+
+路线是**离线可判定**的:URDF + IK + 碰撞检查就够,不需要机器人也不需要感知。
+一次真机跑要等 20 分钟感知+IK 才知道路线不通,离线几分钟能把一整条竖线扫完。
+凡是"只跟运动学有关"的失败,先离线穷举再上机器人。
+
+## 55. 「抓取解贴着预抓取解找」只是注释,不是约束 —— 12cm 下降变成了整臂重构
+
+2026-08-12 18:31。`20260812-16` 那次 dry-run 在 `plan` 阶段自称一切正确:
+`ik_err_mm 0.0`、`tip_resid_mm 0.00036`、`tip_above_table_mm 13.0`、`clearance_mm 10.55`,
+然后被静态地板检查以 **7.4mm < 8mm** 否掉整轮。只差 0.6mm,看着像闸门太严。
+
+**不是闸门的问题。**把记下来的 `q_pre`/`q_grasp` 拿出来看(`/tmp/floor_where.py`,
+纯 FK+碰撞,秒级):
+
+```
+q_pre   [ 1.632 -0.167 -1.144 -1.006 -0.509  1.243 -1.930]
+q_grasp [-1.357 -2.784  0.603 -1.089 -1.721 -0.074 -2.618]
+逐关节 |Δ| [2.989 2.617 1.748 0.084 1.212 1.317 0.688]  max 2.99 rad
+```
+
+两端指尖分别是 (0.5397,−0.1584,**0.9438**) 和 (0.5397,−0.1584,**0.8238**) —— 一个
+**竖直 12cm 的下降**。中间那 20 段却让指尖 `y∈[−0.813,−0.158] z∈[0.810,1.241]`:
+先甩到积木右侧 65cm、升到桌面上方 43cm,再擦着桌面 **−1.8mm** 回来。
+调用处的注释写着"抓取解要贴着预抓取解找,保证下降是一小步而不是重构位形",
+可实现只是把 `pre["q"]` 当**种子**传进 `ik_center` —— 种子是偏好,不是约束。
+
+### 为什么每一道检查都放行了
+
+* `ik_center` 按**残差**挑 best。两个解支的残差都是 0.0mm,谁小谁上,和"能不能走过去"无关。
+* `plan_path`/`collide()` 查的是**连杆** vs 桌面半平面。指尖中点不是连杆
+  (`tcp_link` 是单根手指,§tcp-link),所以擦桌面这件事它看不见。
+* `path_floor_check` 是唯一看指尖中点的,它逮住了 —— 但它在 `plan_to` 选完路线**之后**
+  才跑,而且下降段 `path_gr` 不随路线变,所以它只能一票否决整轮,没法换个方案。
+
+三道判据各看一部分,拼起来才是"这条路能不能走",而它们是串行的、后面那道只有否决权。
+
+### 修法(三处,全部是**收紧**,没有放宽任何现有判据)
+
+1. `ik_center(..., max_dev=)`:超出 `max_dev` 的解**不许当候选**(不是事后再否),
+   精修也不许把解推出去。`DESCEND_MAX_DEV = 0.6` rad —— 12cm 笛卡尔位移落在 ~0.5m
+   臂上约 0.24 rad/关节,留 2.5 倍余量。抓取解这一步用它。
+2. 调用处再核一遍 `dg`(它本来就是 `ik_center` 返回的 max|q−q_ref|,以前没人看)。
+3. `plan_to(..., accept=)`:路线拼好后过一次指尖地板检查,不通过就**试下一条**,
+   而不是等选完了一票否决整轮。自检 `scripts/test_plan_to_accept.py`。
+
+### 元教训
+
+**注释里的"保证"要么是代码,要么是假的。** 这一条注释写对了意图、写对了理由,
+然后传了个种子就完事了 —— 而种子在多起点随机搜索里只是"抽中了就偏好一下"。
+凡是"保证 X"的注释,要么有一个判据能让它失败,要么就把它删掉别骗后面的人。
+
+⚠️ 还没定的一件事:**这个目标(x=0.54,可达带 0.18~0.56 的边缘)在同一解支下到底有没有
+抓取解**。如果没有,那 12cm 就只能靠换支到达,下一步是挪底盘/把积木推近,而不是改判据。
 ## 附:反复出现的元教训
 
 把这几条单独拎出来,因为它们**不是硬件知识**,而是我这次犯错的**方式**:
@@ -874,401 +1272,3 @@ pyzed 原生 API 只在确实需要时用,那时才 `systemctl stop`(记得起�
 
 ---
 
-## §49. DW2 在发真深度,但它的 frame 不在 TF 树里 —— 不是"外参不准",是图里没这条边
-
-2026-08-11 17:50 实测(只读,摇操运行中):
-
-| 量 | 值 |
-|---|---|
-| 话题 | `/camera/depth/image_raw`(还有 `/camera/ir/*`),节点 `/camera/camera` |
-| 帧率 | **14.9 Hz**(IR 14.8) |
-| 分辨率 / 编码 | **640×400**,`16UC1`(单位 mm) |
-| 有效像素 | **90.3%**(231296/256000) |
-| 深度范围 | **834 ~ 2613 mm**,中位 **1264 mm**;画面中心 40×40 全有效、中位 1298 mm |
-| **frame_id** | **`camera_depth_optical_frame`** |
-
-**`camera_depth_optical_frame` 不在 TF 的 39 个 frame 里。**
-
-```
-tf2_echo base_link camera_depth_optical_frame
-  → Invalid frame ID "camera_depth_optical_frame" — frame does not exist
-```
-
-⚠️ **`grep camera_depth_optical_frame` 会骗你**:它命中的是
-`chassis_left_camera_depth_optical_frame`(底盘那台,9.4 Hz,**这台的 frame 是齐的**)。
-判据必须是全等匹配或 `tf2_echo`,不能用子串。
-
-**为什么这比"外参标错"更严重**:标错了至少还有一条边可以修正。这里**根本没有边** ——
-640×400 的深度值相对 `base_link` 在几何上没有意义,任何像素都变不成机器人能去的坐标。
-补它要 6 个数(安装位姿),**一个都没量过**;而且**它装在左腕还是右腕目前只有操作者口述**
-(§48 那次 300 s 相关性实验期间手臂没动过,判定不了)。
-
-**连带的一条风险(未测)**:整帧最近像素是 **834 mm**,而抓取时积木离腕部只有
-100~300 mm。若 DW2 最小工作距离≈800 mm,它在**抓取瞬间是瞎的**,只能远距引导。
-测法:把手伸到积木上方 15 cm,看有没有有效像素。**2 分钟,但需要摇操停。**
-
-**同时记下的旁证**:全机 **0 个 `PointCloud2` 话题** —— 点云只来自
-`Astrabot_ZED_Points.service`,它现在 `failed`(为摇操让路),zed frame 只剩 **1 个**(正常 6)。
-所以"头部 ZED 带点云"这句话在摇操运行期间**是不成立的**。
-
-### 反过来,这一天最有用的发现:积木已经在手里 = 标定可自动化
-
-手里夹着的积木,位置由 FK 已知(指尖中点),而 ZED 和 DW2 **都能看到同一个刚体**。
-让手臂自己摆 5~6 个位姿,每个位姿同时记
-`(FK 指尖中点, ZED 像素+深度, DW2 深度)` ⇒ **一次同时解出两台相机的外参**。
-这把手眼标定从"需要人反复瞄准"降级成"让机器人自己摆姿势",**不再需要人在环**。
-
----
-
-## §51. 重启厂商 dora 采集图要**三个**前置条件,而且每次报错都指向错误的方向
-
-2026-08-11 18:00 重启 `astrabot_data_collection_xr1_evt2.yml` 花了**四次**才成功。
-三个条件缺一不可,报错却没有一次指向真凶:
-
-| # | 前置条件 | 缺了的报错 | 为什么误导 |
-|---|---|---|---|
-| 1 | `export PATH=/home/astrabot/deploy/.venv/bin:$PATH` | 每个 python 节点 `ModuleNotFoundError: No module named 'hardware'` | yml 写的是 `path: python` —— **裸名,从 PATH 解析**。直接调 `./.venv/bin/dora` 二进制时它解析成 `/usr/bin/python`。报错像"包没装",其实是**解释器选错** |
-| 2 | `export ROS_DOMAIN_ID=12` | `control_astrabot` 抛 `[astrabot_robot_controller]: failed to connect TF`(前面刷一堆 SHM 错,10 s 后抛) | 看着像 TF 挂了(§38 那个故障)。实测 `/tf`+`/tf_static` 都在、`rsp` 活着 —— 它只是在 **domain 0** 上看了个空图。**那几行 `RTPS_TRANSPORT_SHM ... open_and_lock_file failed` 是噪音**,我照着它去查 `/dev/shm` 白花了一轮 |
-| 3 | 先 `sudo -A systemctl stop Astrabot_ZED.service Astrabot_ZED_Points.service` | `eye_zed` 抛 `Failed to open ZED camera: CAMERA NOT DETECTED` | 听着像相机掉了 —— 但 `lsusb` 里它明明在。见下 |
-
-**我最初判断"dora 侧不走 ROS,所以不用设 domain"的依据是错的:**
-我 grep 了 `robot_runtime/` 没找到 `rclpy` 就下了结论。但 `control_astrabot` 来自
-**另一个包、另一个 venv**(`/opt/astrabot/venv312` 的 `hardware.robots.astrabot`),
-它 `import rclpy` + `rclpy.spin` + `_wait_for_tf()`,代码里不写死 domain,**全靠环境继承**。
-**教训:"这个栈用不用 ROS"不能只查一个包。**
-
-### 🔴 `Astrabot_ZED.service` 是 `Restart=always` + `RestartUSec=100ms`
-
-**dora 一松手,systemd 在 100 ms 内就把 ZED 抢回去。** 实测:我 17:56 拆完图,
-服务的 `ActiveEnterTimestamp` 就是 **17:57:42**,journal 显示是自动重启不是人为。
-所以「dora 抢得比服务快」是**不可能成立**的,必须**显式 `systemctl stop`**
-(显式 stop 不触发 `Restart=always`)。
-
-原来 SKILL trap 6/24 只写了反方向那半句(「dora 跑着时别 `systemctl start` ZED」),
-**漏了这半句** —— 于是拆图之后的窗口里服务自动回来,下一次启动必然失败。
-⚠️ 停 ZED 服务是**对外动作**:整张 ROS 图上 `/zed/...` 全消失,别人的感知脚本会瞎。
-(`Astrabot_ZED_Points` 本来就是 `failed`,不是停 ZED 造成的。)
-
-**正确的启动命令:**
-
-```bash
-sudo -A systemctl stop Astrabot_ZED.service Astrabot_ZED_Points.service
-cd /home/astrabot/deploy
-export ROS_DOMAIN_ID=12 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export VIRTUAL_ENV=/home/astrabot/deploy/.venv PATH=/home/astrabot/deploy/.venv/bin:$PATH
-.venv/bin/dora run .astra/astrabot_data_collection_xr1_evt2.yml
-```
-
-### 拆图:按名字 `pgrep` 一定漏,而 `pkill -f` 会杀掉你自己
-
-`dora run` 被 SIGTERM 收掉后,**10 个子节点全部孤儿化(ppid→1)继续跑**,
-而它们的模块名各不相同。我按模式列表杀了**三轮**才干净(每轮都以为干净了),
-漏掉的旧 `control_astrabot` 实例还让我把新实例的 `failed to connect TF`
-**误诊成"旧实例占着端口"** —— 一个完全错误的因果。
-
-可靠的枚举是**按启动时刻的 PID 段**(同一次 `dora run` 的子进程 PID 连号):
-
-```bash
-ps -eo pid=,lstart=,cmd= | awk '$1>=2748600 && $1<=2749000'
-```
-
-而 `pkill -f <模式>` / `pgrep -f <模式>` **会匹配到你自己这条命令行**并把 shell 杀掉。
-SKILL trap 5 只对 `g2_gripper_node` 写了 `g2_gripper[_]node` 的括号技巧,
-但这是**通用问题**:我在同一个会话里**栽了两次**(第二次是
-`'robotd_bin/robot_daemon'`、`'robot_control_node_odom'` 这几个我忘了加括号的模式)。
-稳妥写法是**显式排除自己**,别靠记得加 `[ ]`:
-
-```bash
-me=$$; ps -eo pid=,cmd= | grep -E "$pats" | grep -v ' grep ' | awk -v m=$me '$1!=m{print $1}'
-```
-
-### 验证必须用正面判据 —— 「没有报错行」和「压根没起来」输出一模一样
-
-`log_left_wrist.txt` 里那条 `[webcam] ... driver negotiated WxH@F` **只在协商失败时**打印。
-所以"日志里没有 `[webcam]` 行"既可能是"正常打开",也可能是"节点没起来日志是空的"。
-**我拿它当成功判据误判过一次**(§16 同一类错)。能用的正面判据:
-
-- `grep 'Camera successfully opened' log_eye_zed.txt`
-- `grep 'Setup completed' log_control_astrabot.txt` ← TF 真接上了
-- `ls -l /proc/<webcam pid>/fd/3` 指向 `/dev/videoN` 且**不带 `(deleted)`**(§39/§48b)
-- **别用 `/proc/<pid>/fdinfo/3` 的 `pos:`** —— V4L2 字符设备偏移**恒为 0**,零分辨力。
-  用 **CPU 时间增长**:实测 `left_wrist` 6 s 涨 127 ticks(≈21% 核,在解 MJPEG),
-  而黑帧的 `right_wrist` 也涨 71 ticks(≈12% 核)—— 后者说明**失败的那一路不是空转**。
-
-### 附带定案:右腕永久只有 DW2,`right_wrist` 通道从此是黑帧
-
-操作者 2026-08-11 定案「右手算了就不连接了以后也不用,右手已经有双目了」。
-所以 §48 那条"两个口都映射到 `l_arm_cam`"的 udev 规则**是永久的**,
-中途因"相机还在腕上只是线拔了"打算改回按口区分,被这句推翻,**没有改**。
-而 `webcam_node.py` 打不开设备**不退出**,填黑图照样 `send_output` ⇒
-**黑帧会被当正常图像录进数据集**。恒黑通道**不像左右对调那样有毒**(只是白占容量),
-但它会**焊进数据集 schema**:先录 N 条再删节点,前后两批不兼容 —— 要删就趁早。
-
----
-
-## §50. `Astrabot_ZED.service` failed 的根因可能在 **USB 接口的驱动绑定**上,而不在 zed_wrapper
-
-2026-08-11 18:03 实测。17:57 我刚把 ZED 起好(6 个 zed frame、2 个点云话题,
-背景等待器 8 s 就报就绪),18:06 再用时**两个 ZED 服务都是 `failed`**,
-而 `ros2 topic list` 里 3 个 zed 话题**还在**(陈旧发现,`topic hz` 一个都不出数)。
-
-### 判据链(照这个顺序问,4 步定位)
-
-```bash
-systemctl status Astrabot_ZED.service --no-pager -n 25     # 1) 看是哪个 ExecStartPre 退非零
-lsusb | grep -i 2b03                                       # 2) 相机在不在 USB 上(f880 视频 + f881 HID)
-echo 1 | sudo -S /usr/local/bin/prepare-zed-usb.sh         # 3) 让它自己说话
-# 4) 数 f881 那个接口的 driver
-for d in /sys/bus/usb/devices/*; do [ -f "$d/idVendor" ] || continue
-  [ "$(cat $d/idVendor)" = 2b03 ] || continue
-  for i in "$d":*; do [ -d "$i" ] &&
-    echo "$(basename $i) class=$(cat $i/bInterfaceClass) driver=$(basename $(readlink -f $i/driver))"; done; done
-```
-
-本次的读数:
-
-| 项 | 值 | 含义 |
-|---|---|---|
-| `ExecStartPre=/usr/local/bin/prepare-zed-usb.sh` | **status=1/FAILURE** | 相机还没被打开就挂了 |
-| `restart counter is at 5` → `Start request repeated too quickly` | — | 所以最终态是 failed 而不是 restarting |
-| `lsusb` | `2b03:f880` + `2b03:f881` **都在** | **不是掉线,不是线松** |
-| 脚本自述 | `ZED HID interface is already owned by another process: 1-2.2:1.0` | 就是它 |
-| `1-2.2:1.0` | class=03 **driver=usbfs** | 有进程用 **libusb** 绑走了 HID 接口 |
-| `2-1:1.0/1.1` | class=0e driver=uvcvideo | 视频接口反而是好的 |
-
-**`driver=usbfs` = 某个 libusb 进程持有它**;正常态是 `driver=usbhid`。
-
-> ⚠️ **修正(另一会话 18:19 实测):`driver=usbfs` 本身不是故障判据 —— 它也是
-> ZED 服务正常运行时的常态。** 我在 dora 全停、服务 `active`、**6 个 zed frame 都在**
-> 的状态下量到 `1-2.2:1.0 class=03 driver=usbfs`,持有者是
-> `component_container_isolated`(pid 14171)—— **zed_wrapper 自己**。
-> 也就是说 `usbhid` 只是 **`prepare-zed-usb.sh` 跑完、相机还没被打开** 那个瞬间的状态;
-> 一旦 wrapper 打开相机,它自己就用 libusb 把 HID 接口绑成 usbfs。
-> 所以 **必须解析持有者是谁**(下面那段 `/proc/*/fd` 扫描),
-> 不能看到 usbfs 就断定"被抢了" —— 否则会在健康的系统上"修"出故障来。
-> 这正是本文件元教训 5 的又一例:**测你关心的量(谁持有),不要测它的代理(绑到哪个驱动)**。
->
-> 好消息是**恢复不需要人工**:持有者一死,接口的 driver 变成 `""`,
-> `prepare-zed-usb.sh` 会自己 bind 回 usbhid。所以让路之后只要
-> `systemctl reset-failed Astrabot_ZED.service && systemctl start Astrabot_ZED.service`
-> 就够了(18:13 实测:20 s 后 active,30 s 后 6 个 zed frame 齐)。
-`prepare-zed-usb.sh` 的逻辑就是:`""` → 重新 bind 回 usbhid;**`usbfs` → 直接 `return 1` 放弃**
-(它刻意不抢,因为抢了会把对方搞崩)。所以这个失败是**设计出来的让路**,不是 bug。
-
-### 找持有者
-
-```bash
-for f in /proc/[0-9]*/fd/*; do t=$(readlink "$f" 2>/dev/null) || continue
-  case "$t" in */bus/usb/001/004*) p=${f#/proc/}; ps -o pid=,lstart=,cmd= -p "${p%%/*}";; esac; done
-```
-(`001/004` 从 `lsusb` 那行的 Bus/Device 号来。)本次抓到
-`python -m hardware.devices.sensors.camera.single_zed_node`,启动时刻 18:02:28 ——
-**厂商 dora 采集栈的 ZED 节点**,由**另一个 Claude 会话**(pts/5)在 18:02:25 拉起。
-
-### 为什么这条值得单独记:它和 §38 长得不一样,修法相反
-
-| | §38(zed frame 集体消失) | §50(本条) |
-|---|---|---|
-| 服务状态 | **active** | **failed** |
-| 图像话题 | 照常在发 | `topic hz` 出不来数 |
-| zed frame 数 | 1(正常 6) | 1(正常 6) |
-| 根因 | zed_state_publisher 哑了 | HID 接口被 libusb 抢走 |
-| 修法 | `systemctl restart Astrabot_ZED.service` | **restart 一万次也没用**,必须先让持有者松手 |
-
-**"zed frame 只剩 1 个"这一个症状对应两种完全不同的病**,
-所以下手前必须先看 `systemctl is-active` —— active 走 §38,failed 走本条。
-
-### 同机多会话:这是**别人的进程**,不能直接 kill
-
-`ListAgents` 显示本机还有 2 个 Claude 会话在跑。抢占前用 `SendMessage` 问一句,
-理由和 §29(外置录制器)完全同类:**独占资源上,静默抢占会让对方的试验作废且毫无痕迹**。
-反向也成立 —— 我 17:57 起 ZED 的时候如果对方正要起 dora,我就是那个抢的人。
-
-**祖先链能定位是谁干的**,比猜快得多:
-```bash
-pid=<PID>; while [ "$pid" != 1 ]; do ps -o pid=,ppid=,lstart=,cmd= -p $pid; \
-  pid=$(ps -o ppid= -p $pid|tr -d ' '); done      # 一直走到 sshd,就知道是哪个 pts
-```
-
-### 附带确认:积木还夹着
-
-`/qg_robot/gripper_right_state` = `[124, 0, 0, 0]` —— dora 起来了、ZED 被抢了,
-但**右爪没松**,§49 末尾那个"积木在手里 ⇒ 标定可自动化"的基准仍然有效。
-唯一能毁掉它的动作是**开右夹爪**(给 `teleop_gripper_float` 0.0);
-手臂随便动都不要紧,FK 跟着走。已就此给对方会话发了明确提醒。
-
-## §52. 腕部相机看的是爪子**前方**,不是爪子**下方** —— 别拿 `wrist_scan` 的"0 px 黄色"判"积木不在"
-
-2026-08-12 16:0x,我自己刚踩进去又爬出来的一个:差一步就把整个像素闭环方案否掉。
-
-`experiments/wrist_scan/20260812-151749`(扫 y)和 `20260812-152310`(扫 x)
-两组扫描,在 ZED 报的目标位附近**每一行都是 0 px 黄色**,而少数出数的行
-`Z_mm` 是 **10975 / 11853** —— 十一米。当时的推论是"积木根本不在那儿 / 已被推出可达带",
-按这个推论下一步就该去重标外参而不是写闭环。**推论是错的,数据没错。**
-
-### 判据:准心在哪,一张图就够
-
-`experiments/20260812-07/hold_wrist.jpg`(抓取位、爪全开、爪下空桌面)做 orange 连通域:
-两片夹垫质心 **(110.0, 405.4)** 和 **(460.7, 406.3)**,中点 **(285.4, 405.9)**。
-画面 640×480 ⇒ 两指中点在**画面下缘**,离画面中心竖直差 **166 px**。
-夹垫上方那整幅画面拍的是夹爪**前方**一路铺开去的桌子。
-
-于是那两组扫描的读数全都自洽:
-- 爪下那块(准心附近)只剩 74 px 的余量,积木稍微偏向机器人这侧就直接出画 ⇒ **0 px**;
-- 画面主体是远处 ⇒ 偶尔出数的"黄色"是**远墙**,所以 Z=11~12 m。
-
-| | 我当时的读法 | 实际 |
-|---|---|---|
-| 0 px 黄色 | 目标位没有积木 | 目标在准心那一侧的**画外** |
-| Z=11.9 m 的黄色 | 深度乱了 | 远墙,深度是对的 |
-| 该做什么 | 重标手眼 | 把准心当基准写闭环 |
-
-### 连带修掉的一个**闸门 bug**(比误判本身值钱)
-
-`--wrist-off-max 0.5` 原先比的是**离画面中心**的偏移。一块**正对准两指中点**的积木
-读出来是 `off_center=(-0.109, +0.692)` —— 0.692 > 0.5,**每一次瞄准正确的抓取都会被下降闸拒掉**。
-14:14 那次数据碰巧没暴露它(黄色只有 71 px,竖直偏心恰好 0.002,看着"居中",
-其实离准心 166 px)。现在闸门判 `off_aim`(离准心),`off_center` 只留着和历史日志可比。
-`scripts/test_wrist_aim.py` 把"正对准 ⇒ off_center>0.5"写成断言,防止有人把常数改回画面中心。
-
-### 元教训
-
-**"某个传感器没看到"只有在你知道它看的是哪儿之后才是证据。**
-外参没标出来(`wrist_extrinsics/20260812-150406-d455` 那 9 帧 `det` 全 null)
-不等于没有可用基准 —— 夹垫是相机自己画面里的刚性参照物,量一次一直有效,
-比标一次外参便宜得多。和 §33 同类:先确认视场,再解释视场里的空白。
-
-## §53. 手眼「修正」本身就是误差源 —— 一个自洽的 LOO 11.24mm 掩着 230mm 的反号偏移
-
-2026-08-12 17:03。上一节刚修好准心,接下来两次抓取分别被下降闸(§52 的正确闸门)
-和腕部闭环拒掉,理由都是"腕相机在抓取位一个黄色像素都看不到"。这一次**闸门没冤枉谁**:
-同一时刻的 ZED 照片里,**夹爪根本不在取景框内**,而积木清清楚楚在画面中央。
-
-链条上每一环都自称正确:检测像素 `px [764,433]` 落在积木上(圈画确认)、
-IK 残差 0.0mm、地板检查余隙 13mm、FK 反算指尖中点和目标残差 0.0mm。
-**两个"同一个坐标"不是同一个物理位置。**
-
-### 判据:让夹爪自己当标记物,不做任何拟合
-
-`scripts/zed_hand_probe.py`:把指尖停在桌面上方 90mm 的 5 个 **FK 已知**位姿,
-每个位姿拍一张 ZED,直接比「相机模型预测的夹垫像素」vs「夹垫实际出现的像素」。
-没有外参、没有拟合、没有深度,只有一个纯观测量。
-
-| | Δu 均值 (px) | 备注 |
-|---|---|---|
-| 套 `handeye/correction.json` | **+228.5** (std 47.5) | 5 个位姿**同号** |
-| 不套(原始相机模型) | **−9.6** (std 11.3) | 两片夹垫都可见的那两个位姿 +2.8 / −33.7 px ≈ 5~57mm |
-| 取反的修正 | −279.4 | 更差 |
-| 只用 M / 只用 t | +141.9 / +136.4 | 都更差 |
-
-折到目标上:黄积木 px(764,433) 修正后 (0.396,−0.435),**不修正 (0.382,−0.205)** ——
-差 **230mm**,正好是"手臂扑空、且连 ZED 取景框都没进"的那个量。
-`correction.json` 自称 `no_correction_loo_mm = 218.85`,**和实测反号**。
-
-### 为什么 LOO 11.24mm 骗得过去
-
-那 15 个样本全是**积木被举在空中**取的(z 0.857~1.023),而桌面抓取高度 0.8238 ——
-每一个真实目标在 z 上都是盒外外推。刚体拟合把"光心挪 [54.9,−133.6,−20.8]mm"
-拟得内部极其自洽:LOO 是**盒内自洽度,不是对世界的正确性**。
-留着同一批样本重新拟合、交叉验证、换个正则,永远看不出这件事。
-
-### 元教训
-
-**要推翻一个标定,不能靠重新拟合它自己的样本,只能靠一个链外的独立观测。**
-夹爪自己就是最便宜的那个观测:它的位姿 FK 已知、它在相机画面里显眼(橙垫)、
-它想停哪儿停哪儿。`USE_HANDEYE = False` 现在是默认值,理由写在
-`scripts/grasp_block.py` 那个开关上面;`experiments/handeye/correction.json` 作废但不删。
-
-⚠️ `zed_hand_probe.py` 的 `pads_px` 有个已知弱点:只看到一片夹垫时它会把桌上那个
-恒定的橙色果篮团(173.5, 202.2)拉进来平均,污染了 5 个位姿里的 0/1/3。
-**只有两片夹垫都可见的位姿(4、5)是无偏的** —— 上表的结论靠的是这两个 + 全体同号。
-
-## §54. 「中转点抬得够高就能绕过桌子」是错的 —— 通不通取决于 IK 解支,不是高度
-
-2026-08-12 18:0x。零位出发的关节直线必扫桌板(§43),已经写好的三条备用路线
-(`high_over_target` / `lateral_high→high_over_target` / `lateral_high`)**三条全废**。
-直觉上的下一步是"把中转点抬更高",于是离线(`/tmp/route_probe.py`,只用 URDF+IK+
-碰撞检查,不连机器人不跑感知,几秒一次)把 x=0.15 这根竖线上四个高度全试了一遍。
-
-目标 (0.360,−0.183),`gz=0.8238`,开合方向 45°,起点零位(指尖 z=0.353,**在桌面
-0.8108 以下**):
-
-| 中转点 | 高度 | 零位→中转 | 中转→预抓取 |
-|---|---|---|---|
-| `lateral_mid`    | gz+0.15 (0.974) | ✅ 通 | ✅ 通 |
-| `lateral_high`   | gz+0.30 (1.124) | ❌ `arm_5_link` 插进桌面 **273.8mm** @ 路点 3/21, x=+0.204 | ✅ 通 |
-| `lateral_higher` | gz+0.45 (1.274) | ✅ 通 | ✅ 通 |
-| `high_over_target` | gz+0.30, x=0.36 | ❌ `arm_6_link` **328.5mm** @ 路点 3/20 | ✅ 通 |
-| (直达) | — | ❌ `arm_7_link` **347.4mm** @ 路点 3/16 | — |
-
-**更低的 gz+0.15 通,中间的 gz+0.30 撞,更高的 gz+0.45 又通。** 不是单调的,所以
-"高度不够"解释不了它。撞的是那个高度上 `ik_center` 交出来的**解支**:同一个笛卡尔
-中转点有多个手腕/肘部构型,零位→它的关节直线扫过哪里由构型决定,和中转点自己的 z
-基本无关。四条失败的腿全部死在**路点 3/16~21(前 15%)、x≈0.20~0.26**,也就是刚
-迈过 `TABLE_X_MIN=0.2`、手臂还挂在身侧最低的那一瞬 —— 失败由**起点位形**主导,
-不由目标或中转点主导。
-
-### 修法(已落进 `grasp_block.py`)
-
-中转点列表多给两个同 x、不同高度的候选 `lateral_mid`(gz+0.15)和
-`lateral_higher`(gz+0.45),并在三条老路线之后各追加一条单中转点兜底路线。
-代价是每次多两次 `ik_center`(每次分钟级),换来的是不再整轮拒动。
-
-**不许做的两件事**(它们都会把拒动条件本身拆掉,而拒动这次是对的):
-调大 `plan_path` 的 `step_max`(只会让碰撞检查变稀,§43),或放宽
-`path_floor_check` / `tip_clear_mm`。
-
-### 元教训
-
-路线是**离线可判定**的:URDF + IK + 碰撞检查就够,不需要机器人也不需要感知。
-一次真机跑要等 20 分钟感知+IK 才知道路线不通,离线几分钟能把一整条竖线扫完。
-凡是"只跟运动学有关"的失败,先离线穷举再上机器人。
-
-## §55. 「抓取解贴着预抓取解找」只是注释,不是约束 —— 12cm 下降变成了整臂重构
-
-2026-08-12 18:31。`20260812-16` 那次 dry-run 在 `plan` 阶段自称一切正确:
-`ik_err_mm 0.0`、`tip_resid_mm 0.00036`、`tip_above_table_mm 13.0`、`clearance_mm 10.55`,
-然后被静态地板检查以 **7.4mm < 8mm** 否掉整轮。只差 0.6mm,看着像闸门太严。
-
-**不是闸门的问题。**把记下来的 `q_pre`/`q_grasp` 拿出来看(`/tmp/floor_where.py`,
-纯 FK+碰撞,秒级):
-
-```
-q_pre   [ 1.632 -0.167 -1.144 -1.006 -0.509  1.243 -1.930]
-q_grasp [-1.357 -2.784  0.603 -1.089 -1.721 -0.074 -2.618]
-逐关节 |Δ| [2.989 2.617 1.748 0.084 1.212 1.317 0.688]  max 2.99 rad
-```
-
-两端指尖分别是 (0.5397,−0.1584,**0.9438**) 和 (0.5397,−0.1584,**0.8238**) —— 一个
-**竖直 12cm 的下降**。中间那 20 段却让指尖 `y∈[−0.813,−0.158] z∈[0.810,1.241]`:
-先甩到积木右侧 65cm、升到桌面上方 43cm,再擦着桌面 **−1.8mm** 回来。
-调用处的注释写着"抓取解要贴着预抓取解找,保证下降是一小步而不是重构位形",
-可实现只是把 `pre["q"]` 当**种子**传进 `ik_center` —— 种子是偏好,不是约束。
-
-### 为什么每一道检查都放行了
-
-* `ik_center` 按**残差**挑 best。两个解支的残差都是 0.0mm,谁小谁上,和"能不能走过去"无关。
-* `plan_path`/`collide()` 查的是**连杆** vs 桌面半平面。指尖中点不是连杆
-  (`tcp_link` 是单根手指,§tcp-link),所以擦桌面这件事它看不见。
-* `path_floor_check` 是唯一看指尖中点的,它逮住了 —— 但它在 `plan_to` 选完路线**之后**
-  才跑,而且下降段 `path_gr` 不随路线变,所以它只能一票否决整轮,没法换个方案。
-
-三道判据各看一部分,拼起来才是"这条路能不能走",而它们是串行的、后面那道只有否决权。
-
-### 修法(三处,全部是**收紧**,没有放宽任何现有判据)
-
-1. `ik_center(..., max_dev=)`:超出 `max_dev` 的解**不许当候选**(不是事后再否),
-   精修也不许把解推出去。`DESCEND_MAX_DEV = 0.6` rad —— 12cm 笛卡尔位移落在 ~0.5m
-   臂上约 0.24 rad/关节,留 2.5 倍余量。抓取解这一步用它。
-2. 调用处再核一遍 `dg`(它本来就是 `ik_center` 返回的 max|q−q_ref|,以前没人看)。
-3. `plan_to(..., accept=)`:路线拼好后过一次指尖地板检查,不通过就**试下一条**,
-   而不是等选完了一票否决整轮。自检 `scripts/test_plan_to_accept.py`。
-
-### 元教训
-
-**注释里的"保证"要么是代码,要么是假的。** 这一条注释写对了意图、写对了理由,
-然后传了个种子就完事了 —— 而种子在多起点随机搜索里只是"抽中了就偏好一下"。
-凡是"保证 X"的注释,要么有一个判据能让它失败,要么就把它删掉别骗后面的人。
-
-⚠️ 还没定的一件事:**这个目标(x=0.54,可达带 0.18~0.56 的边缘)在同一解支下到底有没有
-抓取解**。如果没有,那 12cm 就只能靠换支到达,下一步是挪底盘/把积木推近,而不是改判据。

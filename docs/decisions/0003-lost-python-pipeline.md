@@ -55,3 +55,35 @@ control half does not.
 - Historical script names appear all over `docs/operations/pitfalls.md`. They are
   kept as *evidence labels*, with a translation table at the top of that file,
   because the lesson attached to each one is still true.
+
+## Addendum (2026-08-18) --- what survived, outside the workspace
+
+An older, *different* Python stack lives in `/home/astrabot/tools/`, outside
+this workspace and outside git. It is not the lost pipeline above; it predates
+it (2026-08-05/06) and it is the layer the vendor stack does not provide:
+
+| file | capability | in this workspace? |
+|---|---|---|
+| `astra_arm.py` | arm/gripper command + rate limiting + channel-idle refusal | yes --- copied to `py/astra_arm.py`, imported by `py/xr1.py` |
+| `astra.py` | skill-SDK facade over the rest (`bot.find()`, `bot.move()`) | no |
+| `astra_cams.py` | publishes the three V4L2 cameras onto the `/astrabot/data_sources/image/*` topics nothing else publishes | no |
+| `astra_detect.py` + `fetch_owlv2.py` | open-vocabulary detection (OWLv2, weights fetched from ModelScope because huggingface.co does not resolve here) | no --- `xr1-vision` detects by colour + plane only |
+| `astra_neck_raw.py` | reads the neck servos over Modbus RTU, bypassing ROS entirely (answers "is torque on?" before bring-up) | no |
+| `astra_task_server.py` | serves `execute_task`, the vendor behaviour-tree skill socket | no |
+| `astra_snap.py`, `rosq.py` | one-frame grab; structured ROS health queries | partly --- `py/xr1.py snap`, `bin/tf-frames` |
+
+These are **not** part of the architecture: none of them is referenced from
+anything in this workspace, and none has been re-verified on hardware in this
+cleanup. They are left where they were found, unpromoted, because each row with
+"no" is a capability the Rust line does not have yet.
+
+`~/tools` was found *missing from disk* on 2026-08-18 at 21:20 --- something
+outside this session removed it after 20:08, and several sessions share this
+machine. It was restored from `.before-cleanup-outside-workspace.tar.gz`, and
+that tarball was then deleted from the workspace and purged from git history:
+it carried `deploy/livekit.env` (LiveKit API key and secret) into the repo, and
+every other non-backup file in it was byte-identical to the live original under
+`~/config`, `~/deploy`, `~/gripper_ws` (checked with `cmp`, 23/23 identical).
+`go_zero.py` / `go_zero_head.py` were deliberately *not* restored --- `py/xr1.py
+home` and `look` ramp the same joints with limit clamping and the channel-idle
+check, so they were duplicates of in-workspace capability.

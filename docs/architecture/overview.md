@@ -96,4 +96,4 @@ this tree is how the teleop path is understood and modified, not what is live.
 |---|---|
 | `vista_runs/<run>/` | observations: `rgb.png`, `depth.npy`, `camera_info.json`, `state.json`, `latest.json` |
 | `experiments/<id>/` | one experiment: `REPORT.md` plus frames |
-| `snapshots/`, `logs/` | raw captures and run logs |
+| `snapshots/` | raw captures |

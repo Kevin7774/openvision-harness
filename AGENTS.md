@@ -70,9 +70,13 @@ in `data/` with a timestamp, not by a test.
 
 ## 6. Evidence
 
-`data/` is append-only ground truth: observations, IK maps, experiment reports.
+`data/` is append-only ground truth: `vista_runs/` observations, `experiments/`
+reports, `snapshots/`. It is **tracked in git**, binary frames included ---
+see the comment in `.gitignore` for why, and for the one way to prune it.
 Never rewrite an old record to match a new belief --- add a new record and, if
-the old one was wrong, say so in the new one. A conclusion with no dated
+the old one was wrong, say so in the new one. Mechanically repointing stored
+absolute paths after a directory move is the one allowed edit, and it belongs in
+the commit message. A conclusion with no dated
 observation behind it is a guess, and must be written as one.
 
 Cross-session coordinates **must carry a timestamp**. Two sessions once spent an

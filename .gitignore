@@ -9,8 +9,9 @@ libdatachannel-install/
 __pycache__/
 *.pyc
 
-# Evidence ledgers: large binary capture data, kept on disk, not in git
-data/experiments/
-data/vista_runs/
-data/snapshots/
-data/logs/
+# data/ is NOT ignored, on purpose. Those .png/.npy frames are the only copy of
+# the scene a measurement was taken in -- ADR 0004's baseline says "re-run on the
+# same frames", and on 2026-08-18 a directory outside this workspace vanished
+# between two commands. 179 MB against 393 GB free is not a reason to risk them.
+# When a measurement stops referencing an observation dir, `git rm -r` it in the
+# commit that supersedes the measurement, so the pruning has a stated reason.

@@ -14,7 +14,8 @@ crates/xr1-vision/   Rust: perception, kinematics, experiment journal   <- main 
 py/                  Python: the rclpy / hardware boundary              <- see AGENTS.md §language
 ros/rtc_teleop/      C++ ROS 2 nodes (source for the vendor teleop path)
 bin/home             one-line wrapper that exports ROS_DOMAIN_ID before homing
-data/                measured evidence: observations, IK maps, experiment reports
+data/                measured evidence: vista_runs/ (observations), experiments/,
+                     snapshots/ --- append-only, every record dated
 docs/                architecture / operations / development / decisions
 ```
 
@@ -33,6 +34,7 @@ python3 py/xr1.py pose            # joints, grippers, tcp
 python3 py/xr1.py bringup         # the G2 gripper driver is not a systemd unit
 bin/tf-frames                     # 52 frames, 6 of them zed_*, or something is dead
 cargo build --release             # -> target/release/xr1-vision
+export PATH="$PWD/target/release:$PATH"   # the commands below are that binary
 xr1-vision observe                # ZED snapshot + intrinsics + image-time TF
 xr1-vision plan                   # yellow block -> footprint -> grasp IK
 xr1-vision fk J1 .. J7            # fingertip-pad FK, for hand-eye work
@@ -75,7 +77,7 @@ believing any single reading. Several sessions share this one machine.
 | [`docs/architecture/kinematics.md`](docs/architecture/kinematics.md) | the tool frame, the IK, the grasp gates |
 | [`docs/operations/status.md`](docs/operations/status.md) | **read first**: current constants, what works, ranked blockers |
 | [`docs/operations/runbook.md`](docs/operations/runbook.md) | observe / plan / experiment / record / teleop, and their preconditions |
-| [`docs/operations/pitfalls.md`](docs/operations/pitfalls.md) | 50 failures with their disambiguating evidence. Long on purpose |
+| [`docs/operations/pitfalls.md`](docs/operations/pitfalls.md) | 55 failures with their disambiguating evidence. Long on purpose |
 | [`docs/development/building.md`](docs/development/building.md) | toolchain, the four gates, what the tests guard |
 | [`docs/decisions/`](docs/decisions/) | why the architecture is this shape, including what was deleted |
 
