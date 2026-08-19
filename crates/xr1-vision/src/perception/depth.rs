@@ -40,6 +40,28 @@ pub(super) fn in_manipulation_workspace(point: [f64; 3]) -> bool {
 }
 
 pub(super) fn transform_point(tf: &Transform, point: [f64; 3]) -> Result<[f64; 3], String> {
+    let rotation = rotation_matrix(tf)?;
+    let rotated: [f64; 3] = std::array::from_fn(|row| {
+        (0..3)
+            .map(|column| rotation[row][column] * point[column])
+            .sum::<f64>()
+    });
+    Ok(std::array::from_fn(|index| {
+        rotated[index] + tf.translation_m[index]
+    }))
+}
+
+pub(super) fn inverse_transform_point(tf: &Transform, point: [f64; 3]) -> Result<[f64; 3], String> {
+    let rotation = rotation_matrix(tf)?;
+    let delta = std::array::from_fn::<_, 3, _>(|index| point[index] - tf.translation_m[index]);
+    Ok(std::array::from_fn(|column| {
+        (0..3)
+            .map(|row| rotation[row][column] * delta[row])
+            .sum::<f64>()
+    }))
+}
+
+fn rotation_matrix(tf: &Transform) -> Result<[[f64; 3]; 3], String> {
     if tf.translation_m.len() != 3 || tf.rotation_xyzw.len() != 4 {
         return Err("invalid TF dimensions".into());
     }
@@ -54,20 +76,23 @@ pub(super) fn transform_point(tf: &Transform, point: [f64; 3]) -> Result<[f64; 3
         return Err("invalid TF quaternion".into());
     }
     let (x, y, z, w) = (x / norm, y / norm, z / norm, w / norm);
-    let rotated = [
-        (1.0 - 2.0 * (y * y + z * z)) * point[0]
-            + 2.0 * (x * y - z * w) * point[1]
-            + 2.0 * (x * z + y * w) * point[2],
-        2.0 * (x * y + z * w) * point[0]
-            + (1.0 - 2.0 * (x * x + z * z)) * point[1]
-            + 2.0 * (y * z - x * w) * point[2],
-        2.0 * (x * z - y * w) * point[0]
-            + 2.0 * (y * z + x * w) * point[1]
-            + (1.0 - 2.0 * (x * x + y * y)) * point[2],
-    ];
-    Ok(std::array::from_fn(|index| {
-        rotated[index] + tf.translation_m[index]
-    }))
+    Ok([
+        [
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y - z * w),
+            2.0 * (x * z + y * w),
+        ],
+        [
+            2.0 * (x * y + z * w),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z - x * w),
+        ],
+        [
+            2.0 * (x * z - y * w),
+            2.0 * (y * z + x * w),
+            1.0 - 2.0 * (x * x + y * y),
+        ],
+    ])
 }
 
 pub(super) fn read_npy_f32(path: &Path, expected: usize) -> Result<Vec<f32>, String> {
@@ -118,5 +143,28 @@ mod tests {
             transform_point(&transform, [1.0, 2.0, 3.0]),
             Ok([1.0, 2.0, 3.0])
         );
+    }
+
+    #[test]
+    fn inverse_transform_undoes_a_rotated_transform() {
+        let half = std::f64::consts::FRAC_PI_4.sin();
+        let transform = Transform {
+            target_frame: "base".into(),
+            source_frame: "camera".into(),
+            translation_m: vec![0.5, -0.2, 1.0],
+            rotation_xyzw: vec![0.0, 0.0, half, half],
+        };
+        let camera = [0.1, -0.3, 0.8];
+        let base = transform_point(&transform, camera);
+        assert!(base.is_ok());
+        let Some(base) = base.ok() else { return };
+        let recovered = inverse_transform_point(&transform, base);
+        assert!(recovered.is_ok());
+        let Some(recovered) = recovered.ok() else {
+            return;
+        };
+        for (actual, expected) in recovered.iter().zip(camera) {
+            assert!((actual - expected).abs() < 1e-12);
+        }
     }
 }

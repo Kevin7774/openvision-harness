@@ -92,6 +92,14 @@ This command is pure replay and does not move hardware. Live orchestration will
 write the same event contract one action and one post-action observation at a
 time.
 
+Visual servoing advances through `ServoStepReconciled`, not through an
+unobserved motion-complete event. Each record binds the executive's current
+`before_frame_id` to a distinct `after_frame_id` and stores the prediction
+match and improvement ratio. A matched, improving step remains in `SERVO`;
+convergence advances to `GRASP`; a prediction mismatch or three-step stall
+enters `DIAGNOSE`. The snapshot carries the latest frame and reconciliation
+result so a replay cannot silently reuse a pre-action observation.
+
 ## Grasp candidates
 
 `preferred_closing_axis` is only a ranking preference. Rust still generates the
@@ -100,9 +108,12 @@ solves IK and ranks the result. Closing axis and roll remain separate fields.
 
 Every `GraspCandidate` carries semantic identity, approach/grasp positions,
 contacts, jaw width, approach/grasp IK, joint margin, contact quality, score and
-diagnostics. Collision and table margins remain explicit `null` until a
-planning-scene backend supplies those measurements.
+diagnostics. `plan --moveit` sends all IK-complete candidates through the XR1
+MoveIt PlanningScene bridge and fills self/path collision plus table-clearance
+measurements before an execution adapter may select one.
 
 `ServoInput` is a different measured-control contract. It binds a named 3×3
 image Jacobian and signal error to one observation frame and produces a bounded
-joint delta. It is not an agent task proposal.
+joint delta. `JacobianMeasurementInput` requires one +/- sample pair per named
+joint; `ReconciliationInput` binds that proposal to distinct before/after
+signals. None of these are agent task proposals.

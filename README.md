@@ -47,7 +47,15 @@ xr1-vision replay --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
 xr1-vision fk J1 .. J7            # fingertip-pad FK, for hand-eye work
 xr1-vision sensor-status          # D405 / tactile capability report
+xr1-vision servo-pads --frame FRAME_DIR
+xr1-vision servo-observe --latest LATEST_JSON
+xr1-vision servo-calibrate --input PLUS_MINUS_SAMPLES_JSON
 xr1-vision servo-propose --input examples/servo_request.json --state STATE_JSON
+xr1-vision servo-propose --request CALIBRATED_REQUEST_JSON --state STATE_JSON \
+  > /tmp/servo-proposal.json
+xr1-vision servo-step --proposal /tmp/servo-proposal.json       # dry-run
+xr1-vision servo-step --proposal /tmp/servo-proposal.json --go  # exactly one microstep
+xr1-vision servo-reconcile --input RECONCILIATION_JSON
 ```
 
 Read [`docs/operations/status.md`](docs/operations/status.md) before moving the
@@ -61,6 +69,8 @@ believing any single reading. Several sessions share this one machine.
 | ZED depth is trustworthy enough to localise the block | independently validated against the teleoperated grasp pose to 2.0 mm |
 | The colour mask separates the block from the green cube *and* from the orange gripper pads | measured regression tests in `crates/xr1-vision/src/perception/` |
 | A named visual-servo proposal cannot bypass the Rust step, freshness, URDF-margin, fingertip-floor or required-sensor gates | unit tests in `visual_servo.rs`, `kinematics/` and `safety.rs` |
+| The servo signal uses the two physical orange pads near FK, not the larger orange fruit | named frame `20260818-120701-385142786-132823` in the Rust perception regression |
+| A microstep must be followed by a distinct newer observation and stops on a sign flip or three reductions below 10% | reconciliation tests in `visual_servo.rs` |
 | Task events cannot skip observation, grounding, geometry, validation or physical verification stages | state-transition tests in `task/executive.rs` |
 | One grasp succeeded | 2026-08-18, gripper reads 149 closed on the object vs 14 closed on air, and it stayed at 148 after lifting |
 | Motion is rate-limited and clamped to the live URDF | `py/astra_arm.py`, refuses on stale `/joint_states` or a busy command channel |
@@ -75,9 +85,12 @@ believing any single reading. Several sessions share this one machine.
 - **Near-field sensing is not execution-ready.** The D405 is present but on a
   degraded 480 Mbit/s path; the two tactile CH340 devices have no tty driver or
   verified frame contract.
-- **The Rust visual-servo proposal and deterministic gate exist, but the live
-  measure/execute/verify loop does not.** The old Python loop remains historical
-  evidence in [ADR 0003](docs/decisions/0003-lost-python-pipeline.md).
+- **The visual-servo components are connected as explicit one-action commands,
+  but the current 3×3 Jacobian has not yet been re-measured and validated on
+  live hardware.** `servo-step --go` executes one approved microstep only;
+  capture and reconciliation remain mandatory before another step. The old
+  Python loop remains historical evidence in
+  [ADR 0003](docs/decisions/0003-lost-python-pipeline.md).
 - **TaskProposal v2 and the task executive are connected for validation and
   replay, not live autonomous execution yet.** `replay` consumes evidence; it
   does not fabricate it or publish motion.

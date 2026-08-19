@@ -51,7 +51,12 @@ where
             Ok(())
         }
         Some("sensor-status") => hardware::print_status(),
+        Some("servo-pads") => servo_pads(&runtime, args.collect()),
+        Some("servo-observe") => servo_observe(&runtime, args.collect()),
+        Some("servo-calibrate") => servo_calibrate(args.collect()),
         Some("servo-propose") => servo_propose(&runtime, args.collect()),
+        Some("servo-step") => servo_step(&runtime, args.collect()),
+        Some("servo-reconcile") => servo_reconcile(args.collect()),
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
             Ok(())
@@ -77,9 +82,79 @@ fn print_help() {
     println!("  end --status SUCCESS|FAILED");
     println!("  status");
     println!("  sensor-status           # read-only physical sensor capability report");
+    println!("  servo-pads --frame DIR  # physical pad signal using the shared Rust detector");
+    println!("  servo-observe [--latest FILE] # pad/target signal from one saved observation");
+    println!("  servo-calibrate --input FILE # fit local 3x3 Jacobian from +/- samples");
     println!(
-        "  servo-propose --input FILE --state FILE # proposal + deterministic gate; never executes"
+        "  servo-propose --input FILE|--request FILE --state FILE # bounded proposal + safety gate"
     );
+    println!("  servo-step --proposal FILE [--go] # execute at most one approved microstep");
+    println!("  servo-reconcile --input FILE # compare predicted vs observed microstep");
+}
+
+fn servo_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    let latest = optional_option(&args, "--latest")?
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            runtime
+                .data_root()
+                .join("vista_runs")
+                .join(RUN_ID)
+                .join("latest.json")
+        });
+    let chain = Chain::from_urdf(runtime.arm_urdf(), "right_tcp_link")?;
+    let observation = perception::observe_servo_signal(&latest, &chain)?;
+    println!(
+        "{}",
+        serde_json::to_string(&observation).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn servo_pads(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    let frame_dir = option(&args, "--frame")?;
+    let chain = Chain::from_urdf(runtime.arm_urdf(), "right_tcp_link")?;
+    let observation = perception::observe_pad_signal_from_frame(Path::new(&frame_dir), &chain)?;
+    println!(
+        "{}",
+        serde_json::to_string(&observation).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn servo_calibrate(args: Vec<String>) -> Result<(), String> {
+    let path = option(&args, "--input")?;
+    let input: visual_servo::JacobianMeasurementInput =
+        serde_json::from_slice(&fs::read(&path).map_err(|error| format!("{path}: {error}"))?)
+            .map_err(|error| format!("invalid Jacobian measurement: {error}"))?;
+    let calibration = visual_servo::measure_jacobian(&input)?;
+    println!(
+        "{}",
+        serde_json::to_string(&calibration).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn servo_reconcile(args: Vec<String>) -> Result<(), String> {
+    let path = option(&args, "--input")?;
+    let input: visual_servo::ReconciliationInput =
+        serde_json::from_slice(&fs::read(&path).map_err(|error| format!("{path}: {error}"))?)
+            .map_err(|error| format!("invalid servo reconciliation: {error}"))?;
+    let report = visual_servo::reconcile(&input)?;
+    println!(
+        "{}",
+        serde_json::to_string(&report).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn servo_step(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    let proposal = option(&args, "--proposal")?;
+    let mut adapter_args = vec!["--proposal", proposal.as_str()];
+    if flag(&args, "--go") {
+        adapter_args.push("--go");
+    }
+    runtime.run_python("servo_adapter.py", &adapter_args)
 }
 
 fn preflight(runtime: &RuntimePaths) -> Result<(), String> {
@@ -199,12 +274,33 @@ fn fk(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
 }
 
 fn servo_propose(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
-    let input_path = option(&args, "--input")?;
     let state_path = option(&args, "--state")?;
-    let input: visual_servo::ServoInput = serde_json::from_slice(
-        &fs::read(&input_path).map_err(|error| format!("{input_path}: {error}"))?,
-    )
-    .map_err(|error| format!("invalid servo input: {error}"))?;
+    let raw_path = optional_option(&args, "--input")?;
+    let request_path = optional_option(&args, "--request")?;
+    let (input, context) = match (raw_path, request_path) {
+        (Some(path), None) => {
+            let input: visual_servo::ServoInput = serde_json::from_slice(
+                &fs::read(&path).map_err(|error| format!("{path}: {error}"))?,
+            )
+            .map_err(|error| format!("invalid servo input: {error}"))?;
+            (input, None)
+        }
+        (None, Some(path)) => {
+            let request: visual_servo::CalibratedServoRequest = serde_json::from_slice(
+                &fs::read(&path).map_err(|error| format!("{path}: {error}"))?,
+            )
+            .map_err(|error| format!("invalid calibrated servo request: {error}"))?;
+            let input = visual_servo::input_from_request(&request)?;
+            let context = serde_json::json!({
+                "calibration_reference_frame_id": request.calibration.reference_frame_id,
+                "target": request.target,
+                "before": request.current
+            });
+            (input, Some(context))
+        }
+        (Some(_), Some(_)) => return Err("use exactly one of --input or --request".into()),
+        (None, None) => return Err("missing --input or --request".into()),
+    };
     let state = observation::read_state(Path::new(&state_path))?;
     let tip = servo_tip(&input.controlled_joints)?;
     let chain = Chain::from_urdf(runtime.arm_urdf(), tip)?;
@@ -233,6 +329,7 @@ fn servo_propose(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String
             "mode": "visual_servo_proposal",
             "generated_at_ns": generated_at_ns,
             "observation_frame_id": input.observation_frame_id,
+            "context": context,
             "proposal": proposal,
             "safety": safety_report,
             "ready_for_execution_adapter": safety_report.approved,

@@ -19,6 +19,9 @@ impl TaskExecutive {
                 destination_object_id: None,
                 selected_grasp_rank: None,
                 selected_place_rank: None,
+                servo_step_count: 0,
+                last_prediction_match: None,
+                last_improvement_ratio: None,
                 last_evidence_confidence: None,
                 last_repair: None,
                 failure_reason: None,
@@ -93,7 +96,54 @@ impl TaskExecutive {
                 require_action(*action, MotionAction::Approach)?;
                 TaskStage::Servo
             }
-            (TaskStage::Servo, TaskEvent::ServoConverged) => TaskStage::Grasp,
+            (
+                TaskStage::Servo,
+                TaskEvent::ServoStepReconciled {
+                    before_frame_id,
+                    after_frame_id,
+                    prediction_match,
+                    converged,
+                    stalled,
+                    improvement_ratio,
+                },
+            ) => {
+                require_nonempty(before_frame_id, "servo before_frame_id")?;
+                require_nonempty(after_frame_id, "servo after_frame_id")?;
+                if before_frame_id == after_frame_id {
+                    return Err("servo reconciliation requires distinct frames".into());
+                }
+                let expected = self
+                    .snapshot
+                    .observation_frame_id
+                    .as_deref()
+                    .ok_or_else(|| "servo has no current observation frame".to_string())?;
+                if before_frame_id != expected {
+                    return Err(format!(
+                        "servo reconciliation starts at {before_frame_id:?}, expected {expected:?}"
+                    ));
+                }
+                if !improvement_ratio.is_finite() {
+                    return Err("servo improvement_ratio must be finite".into());
+                }
+                if *converged && *stalled {
+                    return Err("servo step cannot be both converged and stalled".into());
+                }
+                self.snapshot.servo_step_count = self
+                    .snapshot
+                    .servo_step_count
+                    .checked_add(1)
+                    .ok_or_else(|| "servo step counter overflow".to_string())?;
+                self.snapshot.last_prediction_match = Some(*prediction_match);
+                self.snapshot.last_improvement_ratio = Some(*improvement_ratio);
+                self.snapshot.observation_frame_id = Some(after_frame_id.clone());
+                if !prediction_match || *stalled {
+                    TaskStage::Diagnose
+                } else if *converged {
+                    TaskStage::Grasp
+                } else {
+                    TaskStage::Servo
+                }
+            }
             (TaskStage::Grasp, TaskEvent::MotionCompleted { action }) => {
                 require_action(*action, MotionAction::Grasp)?;
                 TaskStage::Lift
@@ -263,6 +313,28 @@ mod tests {
         proposal
     }
 
+    fn executive_at_servo() -> TaskExecutive {
+        let mut executive = TaskExecutive::new(TaskProposal::yellow_block_grasp()).unwrap();
+        let events = [
+            TaskEvent::ObservationCaptured {
+                frame_id: "frame-1".into(),
+            },
+            TaskEvent::TargetLocked {
+                object_id: "yellow_block".into(),
+            },
+            TaskEvent::GeometryReady,
+            TaskEvent::GraspCandidatesGenerated { feasible_count: 1 },
+            TaskEvent::GraspCandidateValidated { rank: 0 },
+            TaskEvent::MotionCompleted {
+                action: MotionAction::Approach,
+            },
+        ];
+        for (index, item) in events.into_iter().enumerate() {
+            assert!(executive.apply(event(index as u64 + 1, item)).is_ok());
+        }
+        executive
+    }
+
     #[test]
     fn pick_place_happy_path_reaches_complete() {
         let events = vec![
@@ -287,7 +359,17 @@ mod tests {
                     action: MotionAction::Approach,
                 },
             ),
-            event(7, TaskEvent::ServoConverged),
+            event(
+                7,
+                TaskEvent::ServoStepReconciled {
+                    before_frame_id: "frame-1".into(),
+                    after_frame_id: "frame-2".into(),
+                    prediction_match: true,
+                    converged: true,
+                    stalled: false,
+                    improvement_ratio: 0.75,
+                },
+            ),
             event(
                 8,
                 TaskEvent::MotionCompleted {
@@ -357,7 +439,14 @@ mod tests {
             TaskEvent::MotionCompleted {
                 action: MotionAction::Approach,
             },
-            TaskEvent::ServoConverged,
+            TaskEvent::ServoStepReconciled {
+                before_frame_id: "frame-1".into(),
+                after_frame_id: "frame-2".into(),
+                prediction_match: true,
+                converged: true,
+                stalled: false,
+                improvement_ratio: 0.75,
+            },
             TaskEvent::MotionCompleted {
                 action: MotionAction::Grasp,
             },
@@ -390,5 +479,65 @@ mod tests {
     fn out_of_order_event_is_rejected() {
         let mut executive = TaskExecutive::new(TaskProposal::yellow_block_grasp()).unwrap();
         assert!(executive.apply(event(1, TaskEvent::GeometryReady)).is_err());
+    }
+
+    #[test]
+    fn reconciled_servo_steps_bind_frames_and_drive_the_state_machine() {
+        let mut executive = executive_at_servo();
+        assert!(executive
+            .apply(event(
+                7,
+                TaskEvent::ServoStepReconciled {
+                    before_frame_id: "frame-1".into(),
+                    after_frame_id: "frame-2".into(),
+                    prediction_match: true,
+                    converged: false,
+                    stalled: false,
+                    improvement_ratio: 0.45,
+                },
+            ))
+            .is_ok());
+        assert_eq!(executive.snapshot.stage, TaskStage::Servo);
+        assert_eq!(
+            executive.snapshot.observation_frame_id.as_deref(),
+            Some("frame-2")
+        );
+        assert_eq!(executive.snapshot.servo_step_count, 1);
+
+        assert!(executive
+            .apply(event(
+                8,
+                TaskEvent::ServoStepReconciled {
+                    before_frame_id: "frame-2".into(),
+                    after_frame_id: "frame-3".into(),
+                    prediction_match: true,
+                    converged: true,
+                    stalled: false,
+                    improvement_ratio: 0.70,
+                },
+            ))
+            .is_ok());
+        assert_eq!(executive.snapshot.stage, TaskStage::Grasp);
+        assert_eq!(executive.snapshot.servo_step_count, 2);
+    }
+
+    #[test]
+    fn servo_prediction_mismatch_enters_diagnosis() {
+        let mut executive = executive_at_servo();
+        assert!(executive
+            .apply(event(
+                7,
+                TaskEvent::ServoStepReconciled {
+                    before_frame_id: "frame-1".into(),
+                    after_frame_id: "frame-2".into(),
+                    prediction_match: false,
+                    converged: false,
+                    stalled: false,
+                    improvement_ratio: -0.25,
+                },
+            ))
+            .is_ok());
+        assert_eq!(executive.snapshot.stage, TaskStage::Diagnose);
+        assert_eq!(executive.snapshot.last_prediction_match, Some(false));
     }
 }

@@ -50,6 +50,7 @@ damped-least-squares solve and the debug build is minutes slower per call.
 ```bash
 cargo test --workspace
 python3 py/test_motion_adapter.py
+python3 py/test_servo_adapter.py
 ```
 
 The suite contains measured perception regressions plus pure contract tests for
@@ -62,6 +63,9 @@ pretends to unit-test hardware.
 | `mask_keeps_the_yellow_block_and_drops_the_green_cube` | widening the R/G window until the green cube is a candidate |
 | `orange_pads_are_not_yellow_but_the_block_still_is` | the gripper's own pads becoming grasp targets (this happened) |
 | `footprint_axes_stay_horizontal_for_a_block_standing_on_end` | letting the oriented box tilt, which makes the closing-axis solve meaningless |
+| `named_frame_extracts_both_pads_and_rejects_the_fruit` | duplicating or weakening the measured pad detector until the orange fruit is selected |
+| `central_difference_recovers_the_measured_jacobian` | permuting signal rows/joint columns in the +/- fit |
+| `three_low_improvement_steps_stop_the_loop` | allowing a stalled servo to continue moving indefinitely |
 
 The final system check remains `xr1-vision plan` against a named saved frame. It
 exercises the installed URDF and full candidate pipeline without moving hardware;

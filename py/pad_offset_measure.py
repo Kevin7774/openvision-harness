@@ -25,13 +25,9 @@ import subprocess
 import sys
 
 import numpy as np
-from PIL import Image
 
 FK_BIN = "/home/astrabot/workspace/target/release/xr1-vision"
 JOINTS = ["right_arm_%d_joint" % i for i in range(1, 8)]
-# Deliberately far larger than any plausible model error: we are measuring a
-# residual of tens of pixels, so a 250 px candidate is a different object.
-SEARCH_PX = 150.0
 
 
 def quat_to_matrix(x, y, z, w):
@@ -42,37 +38,6 @@ def quat_to_matrix(x, y, z, w):
         [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
         [2 * (x * z - y * w), 2 * (x * w + y * z), 1 - 2 * (x * x + y * y)],
     ])
-
-
-def orange_pad_centroids(rgb):
-    """The two gripper pads, found by colour. Returns centroids sorted by area."""
-    r, g, b = (rgb[:, :, i].astype(np.int16) for i in range(3))
-    # Measured on 20260818-120701: pads sit near (231,124,31). Orange is the only
-    # thing in the workspace with R clearly above G and G clearly above B; the
-    # yellow block has R ~= G, so the r>g margin is what separates them.
-    mask = (r > g + 55) & (g > b + 30) & (r > 120)
-    labels = np.zeros(mask.shape, dtype=np.int32)
-    current, blobs = 0, []
-    for seed in zip(*np.nonzero(mask)):
-        if labels[seed]:
-            continue
-        current += 1
-        stack, pixels = [seed], []
-        labels[seed] = current
-        while stack:
-            y0, x0 = stack.pop()
-            pixels.append((y0, x0))
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    y1, x1 = y0 + dy, x0 + dx
-                    if 0 <= y1 < mask.shape[0] and 0 <= x1 < mask.shape[1] \
-                            and mask[y1, x1] and not labels[y1, x1]:
-                        labels[y1, x1] = current
-                        stack.append((y1, x1))
-        if len(pixels) >= 150:
-            ys, xs = zip(*pixels)
-            blobs.append((len(pixels), float(np.mean(xs)), float(np.mean(ys))))
-    return sorted(blobs, reverse=True)
 
 
 class Frame:
@@ -88,7 +53,6 @@ class Frame:
         tf = self.state["tf"]
         self.r_bc = quat_to_matrix(*tf["rotation_xyzw"])
         self.t_bc = np.array(tf["translation_m"])
-        self.rgb = np.asarray(Image.open(f"{frame_dir}/rgb.png").convert("RGB"))
 
     def joints(self):
         p = self.state["joint_state"]["positions_rad"]
@@ -113,20 +77,6 @@ class Frame:
         good = win[np.isfinite(win) & (win > 0.05)]
         return float(np.median(good)) if good.size else None
 
-    def pads_near(self, pu, pv):
-        """The pad blobs close to a prediction, plus what was rejected.
-
-        Orange is not unique in this scene: a bowl of fake fruit on the left has a
-        plastic orange BIGGER than either pad (2701 px vs 810/337 on frame
-        20260818-120701), so "the two largest orange blobs" picks the fruit and
-        reports a 216 mm offset.
-        """
-        blobs = orange_pad_centroids(self.rgb)
-        near = [b for b in blobs
-                if ((b[1] - pu) ** 2 + (b[2] - pv) ** 2) ** 0.5 <= SEARCH_PX]
-        return near, len(blobs) - len(near)
-
-
 def fk_of(frame):
     out = subprocess.run([FK_BIN, "fk"] + ["%.9f" % v for v in frame.joints()],
                          capture_output=True, text=True, check=True).stdout
@@ -144,13 +94,14 @@ def measure(frame, fk):
     """
     mid = fk["pad_midpoint_base_m"]
     pu, pv, depth = frame.project(mid)
-    near, rejected = frame.pads_near(pu, pv)
-    if len(near) < 2:
-        return {"frame": frame.state["frame_id"], "ok": False,
-                "reason": f"need both pads near the prediction, found {len(near)}",
-                "blobs_rejected_as_other_objects": rejected}
-    (_, u1, v1), (_, u2, v2) = near[0], near[1]
-    mu, mv = (u1 + u2) / 2, (v1 + v2) / 2
+    # Rust owns the measured orange thresholds, FK-local search and pad-pair
+    # validation. This calibration utility consumes that one implementation.
+    result = subprocess.run(
+        [FK_BIN, "servo-pads", "--frame", frame.dir],
+        capture_output=True, text=True, check=True)
+    pads = json.loads(result.stdout)
+    mu, mv = pads["physical_pad_midpoint_uv"]
+    rejected = pads["orange_blobs_rejected"]
     du, dv = mu - pu, mv - pv
     # mm per pixel at the pad's own depth, from the intrinsics -- not the
     # 1.84 px/mm constant, which was measured at the table plane.
@@ -209,7 +160,7 @@ def solve_tool_offset(frame_dirs):
 
 
 def demo():
-    """Offline self-check: projection round-trip, and the colour discrimination."""
+    """Offline self-check for the projection round-trip."""
     class FakeFrame(Frame):
         def __init__(self):
             self.fx = self.fy = 700.0
@@ -224,13 +175,6 @@ def demo():
     u, v, d = f.project(p)
     assert np.allclose(f.unproject(u, v, d), p, atol=1e-9), (f.unproject(u, v, d), p)
 
-    def patch(rgb_value):
-        img = np.zeros((40, 40, 3), dtype=np.uint8)
-        img[:, :] = rgb_value
-        return len(orange_pad_centroids(img))
-
-    assert patch([231, 124, 31]) == 1, "orange pad must be found"
-    assert patch([179, 184, 81]) == 0, "yellow block must not read as a pad"
     print("self-check OK")
 
 

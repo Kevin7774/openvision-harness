@@ -57,7 +57,14 @@ pub enum TaskEvent {
     MotionCompleted {
         action: MotionAction,
     },
-    ServoConverged,
+    ServoStepReconciled {
+        before_frame_id: String,
+        after_frame_id: String,
+        prediction_match: bool,
+        converged: bool,
+        stalled: bool,
+        improvement_ratio: f64,
+    },
     GraspVerified {
         object_held: bool,
         confidence: f64,
@@ -99,6 +106,9 @@ pub struct TaskSnapshot {
     pub destination_object_id: Option<String>,
     pub selected_grasp_rank: Option<usize>,
     pub selected_place_rank: Option<usize>,
+    pub servo_step_count: u32,
+    pub last_prediction_match: Option<bool>,
+    pub last_improvement_ratio: Option<f64>,
     pub last_evidence_confidence: Option<f64>,
     pub last_repair: Option<String>,
     pub failure_reason: Option<String>,

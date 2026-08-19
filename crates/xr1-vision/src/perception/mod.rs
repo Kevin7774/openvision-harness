@@ -1,7 +1,11 @@
 mod depth;
 mod geometry;
+mod servo;
 mod yellow;
 
+pub use servo::{PadSignalObservation, ServoSignalObservation, ServoSignalSample};
+
+use crate::kinematics::Chain;
 use crate::observation::{read_state, ObservationState as State};
 use crate::proposal::GraspPlanRequest;
 use image::io::Reader as ImageReader;
@@ -95,6 +99,46 @@ pub fn observe_object(
         },
         state,
     })
+}
+
+pub fn observe_servo_signal(
+    latest_path: &Path,
+    chain: &Chain,
+) -> Result<ServoSignalObservation, String> {
+    let latest: Latest = read_json(latest_path)?;
+    let camera: CameraInfo = read_json(&latest.camera_info_path)?;
+    let state = read_state(&latest.state_path)?;
+    validate_intrinsics(&camera)?;
+    let rgb = ImageReader::open(&latest.rgb_path)
+        .map_err(|error| error.to_string())?
+        .decode()
+        .map_err(|error| error.to_string())?
+        .to_rgb8();
+    if rgb.width() as usize != camera.width || rgb.height() as usize != camera.height {
+        return Err("RGB dimensions do not match camera info".into());
+    }
+    let depth_image = depth::read_npy_f32(&latest.depth_path, camera.width * camera.height)?;
+    servo::extract(&rgb, &depth_image, &camera, &state, chain)
+}
+
+pub fn observe_pad_signal_from_frame(
+    frame_dir: &Path,
+    chain: &Chain,
+) -> Result<PadSignalObservation, String> {
+    let camera: CameraInfo = read_json(&frame_dir.join("camera_info.json"))?;
+    let state = read_state(&frame_dir.join("state.json"))?;
+    validate_intrinsics(&camera)?;
+    let rgb = ImageReader::open(frame_dir.join("rgb.png"))
+        .map_err(|error| error.to_string())?
+        .decode()
+        .map_err(|error| error.to_string())?
+        .to_rgb8();
+    if rgb.width() as usize != camera.width || rgb.height() as usize != camera.height {
+        return Err("RGB dimensions do not match camera info".into());
+    }
+    let depth_image =
+        depth::read_npy_f32(&frame_dir.join("depth.npy"), camera.width * camera.height)?;
+    servo::extract_pads(&rgb, &depth_image, &camera, &state, chain)
 }
 
 struct TargetPoints {

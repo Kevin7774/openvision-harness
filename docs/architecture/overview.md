@@ -47,12 +47,12 @@ planning does not publish to hardware.
 |---|---|
 | `proposal.rs` | natural-language task, target/destination relations and success predicates; no Cartesian or joint pose fields |
 | `task/` | deterministic observe/plan/act/verify/diagnose state transitions and replay |
-| `perception/` | read one observation and produce measured object geometry |
-| `planning/` | full-circle coarse roll search, top-K local refinement, typed `GraspCandidate` ranking |
+| `perception/` | read one observation and produce object geometry plus physical pad/target servo signals |
+| `planning/` | full-circle roll search, typed `GraspCandidate` ranking and MoveIt collision validation |
 | `kinematics/model.rs` | URDF chain, FK, gripper-pad geometry and shared motion envelope |
 | `kinematics/ik.rs` | multi-seed numerical IK and duplicate-branch removal |
 | `kinematics/grasp.rs` | contact and closing-axis feasibility |
-| `visual_servo.rs` | turn a named 3×3 image-Jacobian measurement into a bounded joint-space proposal |
+| `visual_servo.rs` | fit a local 3×3 image Jacobian, propose one bounded step and reconcile its observed result |
 | `safety.rs` | bind a proposal to fresh evidence and apply deterministic step, URDF margin, floor-path and sensor-capability gates |
 | `observation.rs` | unified ZED artifact, joint, TF, gripper and sensor-capability bundle |
 | `hardware.rs` | read-only D405 and tactile capability discovery; no task policy |
@@ -73,8 +73,13 @@ xr1-vision plan [--proposal P] [--latest L]
 xr1-vision replay --proposal P --events E  deterministic task-state replay; no motion
 xr1-vision fk J1 .. JN                     pad-inner points, midpoint and tool rotation
 xr1-vision sensor-status                   read-only D405 / tactile capability state
+xr1-vision servo-pads --frame DIR          shared Rust physical-pad detector
+xr1-vision servo-observe [--latest L]      physical pad + pinned target signal
+xr1-vision servo-calibrate --input I       +/- observations -> local 3x3 Jacobian
 xr1-vision servo-propose --input I --state S
                                               bounded proposal + deterministic Rust gate
+xr1-vision servo-step --proposal P [--go]  dry-run or exactly one approved microstep
+xr1-vision servo-reconcile --input I       prediction vs distinct newer observation
 xr1-vision begin --purpose TEXT            open a numbered experiment
 xr1-vision note --section NAME --text TEXT  append to its report
 xr1-vision grip --side S --state open|close
@@ -87,8 +92,10 @@ hardware and `plan` is pure computation over files, so a plan can be re-run and
 argued with long after the frame was taken. `plan` moves nothing --- its output
 is labelled `online_plan_dry_run` and executing it is a separate, human decision.
 `servo-propose` is also non-executing: `ready_for_execution_adapter` only means
-the Rust checks passed. `execution_authorized` remains false until the hardware
-adapter re-checks live joint freshness and command-channel idleness.
+the Rust checks passed. `servo-step` requires a separate `--go`, then the Python
+boundary re-checks envelope age, live joint freshness, start drift and channel
+idleness. It executes at most one microstep and requires a newer observation
+before `servo-reconcile` can authorize continued reasoning.
 
 The semantic proposal and typed candidate schemas are specified in
 [`proposals.md`](./proposals.md).
@@ -103,6 +110,7 @@ The semantic proposal and typed candidate schemas are specified in
 | `xr1_cam.py` | drive the external recorder on the Mac at 192.168.123.138 |
 | `pad_offset_measure.py` | measure the gripper-pad pixel offset against `xr1-vision fk` |
 | `motion_adapter.py` | validate a typed Rust plan, select a fully feasible candidate and execute one phase |
+| `servo_adapter.py` | consume one approved Rust envelope and publish at most one joint microstep |
 | `mac/` | the recorder itself (Swift), installed on the Mac |
 
 `astra_arm.py` is the only thing standing between a bad number and the hardware.

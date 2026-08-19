@@ -4,7 +4,7 @@
 {"at_ns":4,"event":"grasp_candidates_generated","feasible_count":2}
 {"at_ns":5,"event":"grasp_candidate_validated","rank":0}
 {"at_ns":6,"event":"motion_completed","action":"approach"}
-{"at_ns":7,"event":"servo_converged"}
+{"at_ns":7,"event":"servo_step_reconciled","before_frame_id":"20260819-005653-726107572-570151","after_frame_id":"20260819-005654-000000000-570152","prediction_match":true,"converged":true,"stalled":false,"improvement_ratio":0.75}
 {"at_ns":8,"event":"motion_completed","action":"grasp"}
 {"at_ns":9,"event":"motion_completed","action":"lift"}
 {"at_ns":10,"event":"grasp_verified","object_held":true,"confidence":0.91}

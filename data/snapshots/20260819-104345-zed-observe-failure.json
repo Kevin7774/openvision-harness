@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-08-19T10:43:45+08:00",
+  "operation": "read_only_vista_observe",
+  "run_id": "servo-transaction-20260819",
+  "ros_domain_id": 12,
+  "rmw_implementation": "rmw_fastrtps_cpp",
+  "result": {
+    "ok": false,
+    "error": "observe timeout after 20.0s: missing rgb, camera_info, depth"
+  },
+  "transport_diagnostic": "RTPS_TRANSPORT_SHM Failed init_port fastrtps_port7015: open_and_lock_file failed",
+  "actions_not_taken": [
+    "No ROS or ZED service was restarted",
+    "No robot motion was commanded"
+  ]
+}
