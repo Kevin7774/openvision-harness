@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "pad_ids": ["fixed", "moving"],
+  "baseline_raw": ["REPLACE_WITH_OPEN_BASELINE", "REPLACE_WITH_OPEN_BASELINE"],
+  "polarity": ["REPLACE_WITH_1_OR_MINUS_1", "REPLACE_WITH_1_OR_MINUS_1"],
+  "max_baseline_drift": "REPLACE_WITH_MEASURED_LIMIT",
+  "contact_delta": "REPLACE_WITH_MEASURED_LIMIT",
+  "max_balance_delta": "REPLACE_WITH_MEASURED_LIMIT",
+  "pressure_ceiling_delta": "REPLACE_WITH_SAFE_MEASURED_LIMIT",
+  "retention_delta": "REPLACE_WITH_MEASURED_LIMIT",
+  "max_retention_drop": "REPLACE_WITH_MEASURED_LIMIT",
+  "max_median_abs_deviation": "REPLACE_WITH_MEASURED_LIMIT",
+  "max_age_ms": 500.0
+}

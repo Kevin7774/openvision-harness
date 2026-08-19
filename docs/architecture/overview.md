@@ -54,6 +54,8 @@ planning does not publish to hardware.
 | `kinematics/grasp.rs` | contact and closing-axis feasibility |
 | `visual_servo.rs` | fit a local 3×3 image Jacobian, propose one bounded step and reconcile its observed result |
 | `servo_loop.rs` | bounded observe/one-step/reobserve orchestration, session lock and append-only evidence |
+| `grasp_feedback.rs` | calibrated two-pad baseline, contact, balance, pressure-ceiling and retention decisions |
+| `grasp_loop.rs` | D405 alignment plus one jaw increment per fresh pressure observation |
 | `safety.rs` | bind a proposal to fresh evidence and apply deterministic step, URDF margin, floor-path and sensor-capability gates |
 | `observation.rs` | unified ZED artifact, joint, TF, gripper and sensor-capability bundle |
 | `hardware.rs` | read-only D405 and tactile capability discovery; no task policy |
@@ -74,6 +76,9 @@ xr1-vision plan [--proposal P] [--latest L]
 xr1-vision replay --proposal P --events E  deterministic task-state replay; no motion
 xr1-vision fk J1 .. JN                     pad-inner points, midpoint and tool rotation
 xr1-vision sensor-status                   read-only D405 / tactile capability state
+xr1-vision d405-observe                    real bounded D405 frame + Rust near-field signal
+xr1-vision tactile-observe --config C      real two-pad pressure sample; no motion
+xr1-vision tactile-assess ...              capture/read two pads + deterministic assessment
 xr1-vision servo-pads --frame DIR          shared Rust physical-pad detector
 xr1-vision servo-observe [--latest L]      physical pad + pinned target signal
 xr1-vision servo-calibrate --input I       +/- observations -> local 3x3 Jacobian
@@ -83,6 +88,7 @@ xr1-vision servo-step --proposal P [--go]  dry-run or exactly one approved micro
 xr1-vision servo-reconcile --input I       prediction vs distinct newer observation
 xr1-vision servo-loop --calibration C [--go]
                                               bounded observe/action/reconcile orchestration
+xr1-vision grasp-loop ... [--go]           D405/tactile bounded jaw closure
 xr1-vision begin --purpose TEXT            open a numbered experiment
 xr1-vision note --section NAME --text TEXT  append to its report
 xr1-vision grip --side S --state open|close

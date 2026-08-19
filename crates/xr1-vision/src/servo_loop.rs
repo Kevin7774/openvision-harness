@@ -1,10 +1,12 @@
 use crate::hardware;
 use crate::kinematics::Chain;
-use crate::observation;
+use crate::observation::{self, JointState};
 use crate::perception;
+use crate::perception::ServoSignalSample;
 use crate::runtime::{self, RuntimePaths};
 use crate::safety;
 use crate::visual_servo;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -35,6 +37,12 @@ struct ServoLoopConfig {
     depth_tolerance_m: f64,
     go: bool,
     requirements: visual_servo::SensorRequirements,
+    observer: LoopObserver,
+}
+
+enum LoopObserver {
+    Zed,
+    D405(visual_servo::ServoTarget),
 }
 
 impl ServoLoopConfig {
@@ -49,6 +57,7 @@ impl ServoLoopConfig {
                 "--capture-timeout",
                 "--tolerance-px",
                 "--depth-tolerance-m",
+                "--d405-target",
             ],
             &[
                 "--go",
@@ -73,6 +82,36 @@ impl ServoLoopConfig {
                     .into(),
             );
         }
+        let d405_target = optional_option(args, "--d405-target")?
+            .map(|path| {
+                serde_json::from_slice::<visual_servo::ServoTarget>(
+                    &fs::read(&path).map_err(|error| format!("{path}: {error}"))?,
+                )
+                .map_err(|error| format!("invalid D405 target: {error}"))
+            })
+            .transpose()?;
+        if d405_target.is_some()
+            && args.iter().any(|argument| {
+                matches!(argument.as_str(), "--tolerance-px" | "--depth-tolerance-m")
+            })
+        {
+            return Err(
+                "D405 tolerance comes from --d405-target; do not also supply loop tolerances"
+                    .into(),
+            );
+        }
+        let mut requirements = visual_servo::SensorRequirements {
+            d405: flag(args, "--require-d405"),
+            tactile: flag(args, "--require-tactile"),
+            force_feedback: flag(args, "--require-force-feedback"),
+        };
+        let observer = if let Some(target) = d405_target {
+            validate_d405_artifacts(&calibration, &target)?;
+            requirements.d405 = true;
+            LoopObserver::D405(target)
+        } else {
+            LoopObserver::Zed
+        };
         Ok(Self {
             calibration,
             run_id,
@@ -88,11 +127,8 @@ impl ServoLoopConfig {
                 0.05,
             )?,
             go: flag(args, "--go"),
-            requirements: visual_servo::SensorRequirements {
-                d405: flag(args, "--require-d405"),
-                tactile: flag(args, "--require-tactile"),
-                force_feedback: flag(args, "--require-force-feedback"),
-            },
+            requirements,
+            observer,
         })
     }
 }
@@ -131,11 +167,11 @@ impl<'a> ServoLoopSession<'a> {
                 "go": config.go,
                 "max_steps": config.max_steps,
                 "timeout_s": config.timeout_s,
-                "service_policy": "use_existing_publishers_only_no_start_stop_or_restart",
+                "service_policy": "never_start_stop_or_restart_services; use existing ZED publisher; direct D405 capture refuses when owned",
                 "requirements": config.requirements,
                 "limitations": [
-                    "D405 and tactile data are safety requirements only until their measured stream/protocol adapters are healthy",
-                    "force feedback is unavailable; G2 obstruction feedback can verify a grasp only after close plus lift",
+                    "D405 observation is active only with --d405-target and a fresh validated real frame; otherwise the observer is ZED",
+                    "tactile pressure is a separate grasp-loop transaction; arm joint force feedback remains unavailable",
                     "self-collision and gripper-body collision remain outside the servo gate"
                 ]
             }),
@@ -155,7 +191,7 @@ impl<'a> ServoLoopSession<'a> {
     fn execute(&self) -> Result<(), String> {
         let mut current = self.capture_observation(0)?;
         let target = self.pin_target(&current)?;
-        if visual_servo::target_reached(&target, &current.signal.sample)? {
+        if visual_servo::target_reached(&target, &current.sample)? {
             return self.finish_initial_alignment(&current);
         }
 
@@ -167,7 +203,7 @@ impl<'a> ServoLoopSession<'a> {
                     "timeout",
                     executed_any,
                     step_index - 1,
-                    &current.signal.sample.frame_id,
+                    &current.sample.frame_id,
                     Some(
                         "insufficient deadline budget for one action and its mandatory re-observation",
                     ),
@@ -187,7 +223,7 @@ impl<'a> ServoLoopSession<'a> {
                     "refused",
                     executed_any,
                     step_index - 1,
-                    &current.signal.sample.frame_id,
+                    &current.sample.frame_id,
                     Some("deterministic safety or required-sensor gate refused the next microstep"),
                 );
             }
@@ -213,13 +249,7 @@ impl<'a> ServoLoopSession<'a> {
                     "step_index": step_index,
                     "adapter": adapter_report
                 }))?;
-                return self.finish(
-                    "dry_run_ready",
-                    false,
-                    0,
-                    &current.signal.sample.frame_id,
-                    None,
-                );
+                return self.finish("dry_run_ready", false, 0, &current.sample.frame_id, None);
             }
             executed_any = true;
 
@@ -240,7 +270,7 @@ impl<'a> ServoLoopSession<'a> {
                     "stopped",
                     true,
                     step_index,
-                    &current.signal.sample.frame_id,
+                    &current.sample.frame_id,
                     Some("joint endpoint missed the approved microstep by more than 0.01rad"),
                 );
             }
@@ -249,7 +279,7 @@ impl<'a> ServoLoopSession<'a> {
                     "converged",
                     true,
                     step_index,
-                    &current.signal.sample.frame_id,
+                    &current.sample.frame_id,
                     reconciliation.stop_reason.as_deref(),
                 );
             }
@@ -258,7 +288,7 @@ impl<'a> ServoLoopSession<'a> {
                     "stopped",
                     true,
                     step_index,
-                    &current.signal.sample.frame_id,
+                    &current.sample.frame_id,
                     reconciliation.stop_reason.as_deref(),
                 );
             }
@@ -268,35 +298,38 @@ impl<'a> ServoLoopSession<'a> {
             "max_steps",
             executed_any,
             self.config.max_steps,
-            &current.signal.sample.frame_id,
+            &current.sample.frame_id,
             Some("maximum microstep count reached without convergence"),
         )
     }
 
     fn pin_target(&self, current: &LoopObservation) -> Result<visual_servo::ServoTarget, String> {
         let calibration_drift =
-            visual_servo::calibration_pose_drift(&self.config.calibration, &current.signal.sample)?;
+            visual_servo::calibration_pose_drift(&self.config.calibration, &current.sample)?;
         if calibration_drift > MAX_CALIBRATION_START_DRIFT_RAD {
             return Err(format!(
                 "calibration start drift {calibration_drift:.4}rad exceeds {MAX_CALIBRATION_START_DRIFT_RAD:.3}rad; return to the measured centre pose or re-calibrate"
             ));
         }
-        let target = visual_servo::ServoTarget {
-            schema_version: 1,
-            source_frame_id: current.signal.sample.frame_id.clone(),
-            signal: current.signal.observed_target_signal,
-            tolerance: [
-                self.config.tolerance_px,
-                self.config.tolerance_px,
-                self.config.depth_tolerance_m,
-            ],
+        let target = match &self.config.observer {
+            LoopObserver::Zed => visual_servo::ServoTarget {
+                schema_version: 1,
+                source_frame_id: current.sample.frame_id.clone(),
+                signal: current.target_signal,
+                tolerance: [
+                    self.config.tolerance_px,
+                    self.config.tolerance_px,
+                    self.config.depth_tolerance_m,
+                ],
+            },
+            LoopObserver::D405(target) => target.clone(),
         };
         self.record(serde_json::json!({
             "event": "servo_target_pinned",
             "at_ns": now_ns()?,
             "target": target,
             "calibration_start_drift_rad": calibration_drift,
-            "observation": current.signal
+            "observation": current.report
         }))?;
         Ok(target)
     }
@@ -308,11 +341,11 @@ impl<'a> ServoLoopSession<'a> {
                 "refused",
                 false,
                 0,
-                &current.signal.sample.frame_id,
+                &current.sample.frame_id,
                 Some("target is aligned, but a required sensor capability is not healthy"),
             );
         }
-        self.finish("converged", false, 0, &current.signal.sample.frame_id, None)
+        self.finish("converged", false, 0, &current.sample.frame_id, None)
     }
 
     fn prepare_step(
@@ -325,21 +358,22 @@ impl<'a> ServoLoopSession<'a> {
             schema_version: 1,
             calibration: self.config.calibration.clone(),
             target: target.clone(),
-            current: current.signal.sample.clone(),
+            current: current.sample.clone(),
             damping: 0.5,
             requires: self.config.requirements.clone(),
         };
         let input = visual_servo::input_from_request(&request)?;
         let proposal = visual_servo::propose(&input, safety::MAX_SERVO_STEP_RAD)?;
-        let state = observation::read_state(&current.state_path)?;
         let chain = Chain::from_urdf(
             self.runtime.arm_urdf(),
             visual_servo::controlled_arm_tip(&input.controlled_joints)?,
         )?;
         let generated_at_ns = now_ns()?;
-        let safety_report = safety::evaluate_servo(
+        let safety_report = safety::evaluate_servo_live(
             &chain,
-            &state,
+            &current.sample.frame_id,
+            current.sample.received_at_ns,
+            &current.joint_state,
             &input.observation_frame_id,
             &proposal,
             &self.config.requirements,
@@ -362,13 +396,13 @@ impl<'a> ServoLoopSession<'a> {
                     "step_index": step_index,
                     "calibration_reference_frame_id": self.config.calibration.reference_frame_id,
                     "target": target,
-                    "before": current.signal.sample
+                    "before": current.sample
                 },
                 "proposal": proposal,
                 "safety": safety_report,
                 "ready_for_execution_adapter": safety_report.approved,
                 "execution_authorized": false,
-                "service_policy": "use_existing_publishers_only_no_start_stop_or_restart"
+                "service_policy": "never_start_stop_or_restart_services; direct D405 capture refuses when owned"
             }),
         )?;
         Ok(PreparedStep {
@@ -406,8 +440,8 @@ impl<'a> ServoLoopSession<'a> {
         let reconciliation = visual_servo::reconcile(&visual_servo::ReconciliationInput {
             schema_version: 1,
             target: target.clone(),
-            before: before.signal.sample.clone(),
-            after: after.signal.sample.clone(),
+            before: before.sample.clone(),
+            after: after.sample.clone(),
             proposal: step.proposal.clone(),
             prior_improvement_ratios: prior_improvement_ratios.to_vec(),
         })?;
@@ -417,7 +451,7 @@ impl<'a> ServoLoopSession<'a> {
             "step_index": step.index,
             "proposal_path": step.path,
             "adapter": adapter_report,
-            "after_observation": after.signal,
+            "after_observation": after.report,
             "reconciliation": reconciliation
         }))?;
         Ok(reconciliation)
@@ -436,8 +470,8 @@ impl<'a> ServoLoopSession<'a> {
         let recovery_reconciliation = visual_servo::reconcile(&visual_servo::ReconciliationInput {
             schema_version: 1,
             target: target.clone(),
-            before: before.signal.sample.clone(),
-            after: after.signal.sample.clone(),
+            before: before.sample.clone(),
+            after: after.sample.clone(),
             proposal: proposal.clone(),
             prior_improvement_ratios: prior_improvement_ratios.to_vec(),
         })
@@ -447,42 +481,88 @@ impl<'a> ServoLoopSession<'a> {
             "at_ns": now_ns()?,
             "step_index": step_index,
             "error": error,
-            "recovery_observation": after.signal,
+            "recovery_observation": after.report,
             "recovery_reconciliation": recovery_reconciliation
         }))?;
         self.finish(
             "stopped",
             true,
             step_index,
-            &after.signal.sample.frame_id,
+            &after.sample.frame_id,
             Some("hardware adapter failed; a mandatory recovery observation was captured"),
         )
     }
 
     fn capture_observation(&self, observation_index: usize) -> Result<LoopObservation, String> {
         let timeout = format!("{:.3}", self.config.capture_timeout_s);
-        let output = self.runtime.run_python_capture(
-            "vista_observe.py",
-            &[
-                "--run-id",
-                &self.config.run_id,
-                "--timeout",
-                timeout.as_str(),
-            ],
-        )?;
-        let report = parse_last_json(&output, "VISTA observation")?;
-        if report.get("ok") != Some(&serde_json::Value::Bool(true)) {
-            return Err(format!("VISTA observation failed: {report}"));
-        }
-        let frame_id = json_string(&report, "frame_id")?;
-        let state_path = PathBuf::from(json_string(&report, "state_path")?);
+        let (report, sample, target_signal, joint_state) = match &self.config.observer {
+            LoopObserver::Zed => {
+                let output = self.runtime.run_python_capture(
+                    "vista_observe.py",
+                    &[
+                        "--run-id",
+                        &self.config.run_id,
+                        "--timeout",
+                        timeout.as_str(),
+                    ],
+                )?;
+                let report = parse_last_json(&output, "VISTA observation")?;
+                validate_observation_report(&report, "VISTA")?;
+                let state_path = PathBuf::from(json_string(&report, "state_path")?);
+                let frame_id = json_string(&report, "frame_id")?;
+                let latest_path = self.session_dir.join(format!(
+                    "observation-{observation_index:02}-{frame_id}.latest.json"
+                ));
+                write_json(&latest_path, &report)?;
+                let chain = Chain::from_urdf(self.runtime.arm_urdf(), "right_tcp_link")?;
+                let signal = perception::observe_servo_signal(&latest_path, &chain)?;
+                let state = observation::read_state(&state_path)?;
+                (
+                    report,
+                    signal.sample,
+                    signal.observed_target_signal,
+                    state.joint_state,
+                )
+            }
+            LoopObserver::D405(target) => {
+                let output_root = self.runtime.data_root().join("sensors/d405");
+                let root = output_root.to_string_lossy().into_owned();
+                let output = self.runtime.run_python_capture(
+                    "d405_observe.py",
+                    &[
+                        "--timeout",
+                        timeout.as_str(),
+                        "--output-root",
+                        root.as_str(),
+                    ],
+                )?;
+                let report = parse_last_json(&output, "D405 observation")?;
+                validate_observation_report(&report, "D405")?;
+                let latest_path = PathBuf::from(json_string(&report, "latest_path")?);
+                let signal = perception::observe_near_field_signal(&latest_path)?;
+                let joint_state = JointState {
+                    received_at_ns: signal.joint_received_at_ns,
+                    positions_rad: signal
+                        .sample
+                        .joints_rad
+                        .iter()
+                        .map(|(name, value)| (name.clone(), Some(*value)))
+                        .collect::<HashMap<_, _>>(),
+                };
+                (report, signal.sample, target.signal, joint_state)
+            }
+        };
+        let frame_id = sample.frame_id.as_str();
         let latest_path = self.session_dir.join(format!(
             "observation-{observation_index:02}-{frame_id}.latest.json"
         ));
         write_json(&latest_path, &report)?;
-        let chain = Chain::from_urdf(self.runtime.arm_urdf(), "right_tcp_link")?;
-        let signal = perception::observe_servo_signal(&latest_path, &chain)?;
-        Ok(LoopObservation { state_path, signal })
+        Ok(LoopObservation {
+            sample,
+            target_signal,
+            joint_state,
+            report,
+        })
     }
 
     fn has_step_budget(&self) -> bool {
@@ -549,8 +629,10 @@ struct PreparedStep {
 }
 
 struct LoopObservation {
-    state_path: PathBuf,
-    signal: perception::ServoSignalObservation,
+    sample: ServoSignalSample,
+    target_signal: [f64; 3],
+    joint_state: JointState,
+    report: serde_json::Value,
 }
 
 struct ServoLoopLock {
@@ -559,7 +641,7 @@ struct ServoLoopLock {
 
 impl ServoLoopLock {
     fn acquire(session_id: &str) -> Result<Self, String> {
-        let path = std::env::temp_dir().join("xr1-visual-servo-loop.lock");
+        let path = std::env::temp_dir().join("xr1-robot-action-loop.lock");
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -570,7 +652,7 @@ impl ServoLoopLock {
         if !try_lock_exclusive(&file)? {
             let holder = fs::read_to_string(&path).unwrap_or_else(|_| "unknown".into());
             return Err(format!(
-                "another visual-servo loop is active (holder={})",
+                "another robot action loop is active (holder={})",
                 holder.trim()
             ));
         }
@@ -659,6 +741,13 @@ fn json_string<'a>(value: &'a serde_json::Value, name: &str) -> Result<&'a str, 
         .ok_or_else(|| format!("JSON report is missing string field {name}"))
 }
 
+fn validate_observation_report(report: &serde_json::Value, source: &str) -> Result<(), String> {
+    if report.get("ok") != Some(&serde_json::Value::Bool(true)) {
+        return Err(format!("{source} observation failed: {report}"));
+    }
+    Ok(())
+}
+
 fn validate_run_id(run_id: &str) -> Result<(), String> {
     let mut characters = run_id.chars();
     let valid_first = characters
@@ -668,6 +757,33 @@ fn validate_run_id(run_id: &str) -> Result<(), String> {
         characters.all(|value| value.is_ascii_alphanumeric() || matches!(value, '.' | '_' | '-'));
     if !valid_first || !valid_rest || run_id.len() > 64 {
         return Err("--run-id must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}".into());
+    }
+    Ok(())
+}
+
+fn validate_d405_artifacts(
+    calibration: &visual_servo::JacobianCalibration,
+    target: &visual_servo::ServoTarget,
+) -> Result<(), String> {
+    let frame_is_d405 = |frame: &str| frame.starts_with("d405-");
+    if !frame_is_d405(&target.source_frame_id)
+        || !frame_is_d405(&calibration.reference_frame_id)
+        || calibration.sample_frame_ids.is_empty()
+        || !calibration
+            .sample_frame_ids
+            .iter()
+            .all(|frame| frame_is_d405(frame))
+    {
+        return Err(
+            "--d405-target requires a Jacobian and target measured from named d405-* frames".into(),
+        );
+    }
+    if !calibration
+        .controlled_joints
+        .iter()
+        .all(|joint| joint.starts_with("right_arm_") && joint.ends_with("_joint"))
+    {
+        return Err("the right-wrist D405 may control only named right-arm joints".into());
     }
     Ok(())
 }
@@ -779,6 +895,33 @@ fn flag(args: &[String], name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    fn d405_artifacts() -> (visual_servo::JacobianCalibration, visual_servo::ServoTarget) {
+        (
+            visual_servo::JacobianCalibration {
+                schema_version: 1,
+                reference_frame_id: "d405-center".into(),
+                controlled_joints: vec![
+                    "right_arm_2_joint".into(),
+                    "right_arm_4_joint".into(),
+                    "right_arm_6_joint".into(),
+                ],
+                reference_joints_rad: BTreeMap::new(),
+                reference_signal: [424.0, 240.0, 0.10],
+                jacobian: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                perturbation_span_rad: BTreeMap::new(),
+                max_background_joint_drift_rad: 0.0,
+                sample_frame_ids: vec!["d405-negative".into(), "d405-positive".into()],
+            },
+            visual_servo::ServoTarget {
+                schema_version: 1,
+                source_frame_id: "d405-target".into(),
+                signal: [424.0, 240.0, 0.08],
+                tolerance: [5.0, 5.0, 0.005],
+            },
+        )
+    }
 
     #[test]
     fn run_id_cannot_escape_the_data_root() {
@@ -832,5 +975,16 @@ mod tests {
             "requires_reobservation": true
         });
         assert!(validate_adapter_report(report, true, "frame-1").is_err());
+    }
+
+    #[test]
+    fn d405_target_refuses_a_zed_jacobian_or_left_arm() {
+        let (mut calibration, target) = d405_artifacts();
+        assert!(validate_d405_artifacts(&calibration, &target).is_ok());
+        calibration.reference_frame_id = "zed-frame".into();
+        assert!(validate_d405_artifacts(&calibration, &target).is_err());
+        calibration.reference_frame_id = "d405-center".into();
+        calibration.controlled_joints[0] = "left_arm_2_joint".into();
+        assert!(validate_d405_artifacts(&calibration, &target).is_err());
     }
 }

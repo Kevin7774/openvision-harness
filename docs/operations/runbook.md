@@ -59,10 +59,54 @@ reconciliation. Defaults are six steps and 180 s; concurrent loops are refused.
 It uses running publishers as-is and never starts, stops or restarts services.
 
 Do not add `--require-d405`, `--require-tactile` or
-`--require-force-feedback` to make a result look safer: on the current hardware
-they correctly refuse execution. They become usable only after their actual
-stream/protocol is measured healthy. Convergence authorizes neither gripper
-close nor a claim of grasp success; those remain separate actions and evidence.
+`--require-force-feedback` to make a result look safer. D405 and tactile become
+healthy only for a fresh validated real sample; arm force feedback remains
+unavailable. Convergence authorizes neither gripper close nor a claim of grasp
+success; those remain separate actions and evidence.
+
+### D405 and pressure-assisted final grasp
+
+Copy the three files under `examples/*.example.json`, replace every placeholder
+with measured values, and keep the originals as a reminder that defaults are
+not calibration. First verify each read-only boundary:
+
+```bash
+xr1-vision d405-observe
+xr1-vision tactile-observe --config /tmp/tactile.json
+xr1-vision tactile-assess --mode baseline \
+  --config /tmp/tactile.json --calibration /tmp/tactile-calibration.json
+```
+
+Use repeated `tactile-observe` samples with the jaws open, then gentle manual
+pressure on each named patch, to determine baseline, polarity, noise, contact,
+balance and a human-approved pressure ceiling. Do not derive a safety ceiling
+from USB enumeration or from one arbitrary sample.
+
+Use a D405 Jacobian measured at the current pose family for final alignment:
+
+```bash
+xr1-vision servo-loop --calibration /tmp/d405-jacobian.json \
+  --d405-target /tmp/d405-grasp-target.json
+# Inspect the fresh image and dry-run report before the separate --go action.
+```
+
+Once the target is inside tolerance and the gripper is already open, dry-run
+the contact loop. A real run performs only one jaw increment per fresh pressure
+sample and rechecks D405 before any further close:
+
+```bash
+xr1-vision grasp-loop --tactile-config /tmp/tactile.json \
+  --tactile-calibration /tmp/tactile-calibration.json \
+  --d405-target /tmp/d405-grasp-target.json
+# Repeat with --go only after the dry run passes.
+```
+
+Balanced two-pad contact ends in `contact`; one-sided contact ends in
+`imbalanced`; the pressure ceiling permits one opening increment and then
+stops. The loop has a 360 s default overall deadline in addition to its 20-step
+ceiling. `lift_authorized` remains false: lifting is a separate arm action, after
+which `tactile-assess --mode retention --held HELD --observation AFTER_LIFT`
+checks that both pads retained pressure without an excessive drop.
 
 ## 2. Run an experiment
 

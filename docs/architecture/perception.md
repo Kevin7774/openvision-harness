@@ -77,8 +77,10 @@ threshold, they fail, which is the point.
 
 ## Deliberate non-goals
 
-- **No near-field fusion yet.** D405 and tactile are represented as discovered
-  capabilities, but neither currently supplies frames to this perception path.
+- **No probabilistic sensor fusion.** D405 supplies a real fresh near-field
+  `[u, v, depth]` signal and the two pressure patches supply independent contact
+  evidence. The bounded controller composes their deterministic gates; it does
+  not blend stale or missing values into an estimated observation.
 - **No tracking.** One frame in, one plan out. The world may have been changed by
   a human or another session between frames, so continuity would be a lie.
 - **No learned model.** Nothing here loads weights. The block is found by

@@ -1,6 +1,16 @@
 use std::collections::VecDeque;
 
 pub(super) fn component_mask(rgb: &image::RgbImage) -> Vec<bool> {
+    let mut selected = vec![false; rgb.width() as usize * rgb.height() as usize];
+    for component in components(rgb) {
+        for index in component {
+            selected[index] = true;
+        }
+    }
+    selected
+}
+
+pub(super) fn components(rgb: &image::RgbImage) -> Vec<Vec<usize>> {
     let width = rgb.width() as usize;
     let height = rgb.height() as usize;
     let broad = rgb
@@ -13,7 +23,7 @@ pub(super) fn component_mask(rgb: &image::RgbImage) -> Vec<bool> {
         })
         .collect::<Vec<_>>();
     let mut visited = vec![false; broad.len()];
-    let mut selected = vec![false; broad.len()];
+    let mut selected = Vec::new();
     for start in 0..broad.len() {
         if visited[start] || !broad[start] {
             continue;
@@ -53,9 +63,7 @@ pub(super) fn component_mask(rgb: &image::RgbImage) -> Vec<bool> {
             && sum_red <= 1.15 * sum_green
             && mean_chroma >= 10.0
         {
-            for index in component {
-                selected[index] = true;
-            }
+            selected.push(component);
         }
     }
     selected
@@ -106,5 +114,22 @@ mod tests {
         assert_eq!(count(0, 20), 400);
         assert_eq!(count(25, 40), 0);
         assert_eq!(count(45, 60), 0);
+    }
+
+    #[test]
+    fn accepted_components_remain_distinct_for_near_field_ambiguity_checks() {
+        let mut image = image::RgbImage::from_pixel(80, 40, image::Rgb([0, 0, 0]));
+        for y in 5..15 {
+            for x in 5..15 {
+                image.put_pixel(x, y, image::Rgb([176, 178, 41]));
+            }
+            for x in 50..60 {
+                image.put_pixel(x, y, image::Rgb([176, 178, 41]));
+            }
+        }
+        let found = components(&image);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].len(), 100);
+        assert_eq!(found[1].len(), 100);
     }
 }

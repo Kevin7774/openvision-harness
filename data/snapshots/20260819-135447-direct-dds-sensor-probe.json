@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-19T13:54:47+08:00",
+  "observer_host": "appledeMBP-3.lan",
+  "robot_host": "192.168.123.102",
+  "ros_domain_id": 12,
+  "operator_report": {
+    "tactile_hardware": "Two pressure-sensor patches are installed inside the gripper and have produced data in an operator test.",
+    "near_field_camera": "The D405 is installed to provide final-stage near-field localization for grasping."
+  },
+  "direct_observation": {
+    "robot_reachable": true,
+    "dds_discovery_method": "Native Cyclone DDS discovery on macOS en0; no robot-side process was started or restarted.",
+    "dds_endpoints_discovered": 304,
+    "known_live_sample": {
+      "topic": "/ultrasonic/right/range",
+      "range_m": 0.3041379153728485
+    },
+    "gripper_command_or_feedback_endpoint_present": false,
+    "tactile_pressure_endpoint_present": false,
+    "d405_realsense_endpoint_present": false,
+    "joint_state_endpoint_present": false,
+    "ssh_command_execution": "Blocked by robot filesystem permissions; authentication succeeds but /bin/bash cannot start."
+  },
+  "action": {
+    "gripper_motion_executed": false,
+    "reason": "The live DDS graph has no gripper command subscriber or position/pressure feedback publisher. A close command would be silently dropped and could not be reconciled against fresh feedback.",
+    "services_restarted": false,
+    "arm_motion_executed": false
+  },
+  "conclusion": "The operator report corrects the physical-hardware inventory, but current runtime availability and the pressure protocol/pad mapping remain unverified. Restore robot-side command execution or expose the already-used pressure data channel before a bounded open-close pressure test."
+}

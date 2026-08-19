@@ -1,5 +1,7 @@
 pub mod cli;
 pub mod experiment;
+pub mod grasp_feedback;
+pub mod grasp_loop;
 pub mod hardware;
 pub mod kinematics;
 pub mod observation;

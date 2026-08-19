@@ -1,8 +1,10 @@
 mod depth;
 mod geometry;
+mod near_field;
 mod servo;
 mod yellow;
 
+pub use near_field::NearFieldSignalObservation;
 pub use servo::{PadSignalObservation, ServoSignalObservation, ServoSignalSample};
 
 use crate::kinematics::Chain;
@@ -23,6 +25,8 @@ struct Latest {
 
 #[derive(Deserialize)]
 struct CameraInfo {
+    #[serde(default)]
+    serial: Option<String>,
     width: usize,
     height: usize,
     k: Vec<f64>,
@@ -119,6 +123,10 @@ pub fn observe_servo_signal(
     }
     let depth_image = depth::read_npy_f32(&latest.depth_path, camera.width * camera.height)?;
     servo::extract(&rgb, &depth_image, &camera, &state, chain)
+}
+
+pub fn observe_near_field_signal(latest_path: &Path) -> Result<NearFieldSignalObservation, String> {
+    near_field::observe(latest_path)
 }
 
 pub fn observe_pad_signal_from_frame(

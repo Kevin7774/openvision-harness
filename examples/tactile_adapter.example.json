@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "sample_window_ms": 300,
+  "minimum_samples": 10,
+  "sources": [
+    {
+      "id": "right_gripper_pressure",
+      "transport": "pyusb_ch340",
+      "usb_path": "REPLACE_WITH_MEASURED_USB_PATH",
+      "baud": 115200,
+      "pads": {
+        "fixed": "REPLACE_WITH_FIXED_PAD_FIELD",
+        "moving": "REPLACE_WITH_MOVING_PAD_FIELD"
+      }
+    }
+  ]
+}

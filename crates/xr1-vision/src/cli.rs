@@ -1,4 +1,6 @@
 use crate::experiment::ExperimentJournal;
+use crate::grasp_feedback::{self, TactileCalibration, TactileObservation};
+use crate::grasp_loop;
 use crate::hardware;
 use crate::kinematics::Chain;
 use crate::observation;
@@ -51,6 +53,10 @@ where
             Ok(())
         }
         Some("sensor-status") => hardware::print_status(),
+        Some("d405-observe") => d405_observe(&runtime, args.collect()),
+        Some("tactile-observe") => tactile_observe(&runtime, args.collect()),
+        Some("tactile-assess") => tactile_assess(&runtime, args.collect()),
+        Some("grasp-loop") => grasp_loop::run(&runtime, args.collect()),
         Some("servo-pads") => servo_pads(&runtime, args.collect()),
         Some("servo-observe") => servo_observe(&runtime, args.collect()),
         Some("servo-calibrate") => servo_calibrate(args.collect()),
@@ -83,6 +89,14 @@ fn print_help() {
     println!("  end --status SUCCESS|FAILED");
     println!("  status");
     println!("  sensor-status           # read-only physical sensor capability report");
+    println!("  d405-observe [--timeout S] # capture and validate one real near-field frame");
+    println!("  tactile-observe --config FILE # capture two named pressure pads without motion");
+    println!(
+        "  tactile-assess --mode baseline|closure|retention --observation FILE|--config FILE --calibration FILE"
+    );
+    println!(
+        "  grasp-loop --tactile-config FILE --tactile-calibration FILE --d405-target FILE [--timeout S] [--go]"
+    );
     println!("  servo-pads --frame DIR  # physical pad signal using the shared Rust detector");
     println!("  servo-observe [--latest FILE] # pad/target signal from one saved observation");
     println!("  servo-calibrate --input FILE # fit local 3x3 Jacobian from +/- samples");
@@ -94,6 +108,130 @@ fn print_help() {
     println!(
         "  servo-loop --calibration FILE [--go] # bounded observe/step/reobserve loop; never restarts services"
     );
+}
+
+fn d405_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    validate_command_args(&args, &["--timeout"], &[])?;
+    let timeout = optional_option(&args, "--timeout")?.unwrap_or_else(|| "8.0".into());
+    let timeout_value = timeout
+        .parse::<f64>()
+        .map_err(|_| "--timeout must be a number".to_string())?;
+    if !timeout_value.is_finite() || !(3.0..=20.0).contains(&timeout_value) {
+        return Err("--timeout must be within 3..20 seconds".into());
+    }
+    let output_root = runtime.data_root().join("sensors/d405");
+    let root = output_root.to_string_lossy().into_owned();
+    let output = runtime.run_python_capture(
+        "d405_observe.py",
+        &[
+            "--timeout",
+            timeout.as_str(),
+            "--output-root",
+            root.as_str(),
+        ],
+    )?;
+    let report = parse_last_json(&output, "D405 adapter")?;
+    if report.get("ok") != Some(&serde_json::Value::Bool(true)) {
+        return Err(format!("D405 observation failed: {report}"));
+    }
+    let latest_path = PathBuf::from(json_string(&report, "latest_path")?);
+    let signal = perception::observe_near_field_signal(&latest_path)?;
+    println!(
+        "{}",
+        serde_json::to_string(&serde_json::json!({
+            "ok": true,
+            "schema_version": 1,
+            "mode": "d405_observe",
+            "capture": report,
+            "signal": signal
+        }))
+        .map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn tactile_assess(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    validate_command_args(
+        &args,
+        &[
+            "--mode",
+            "--observation",
+            "--config",
+            "--calibration",
+            "--held",
+        ],
+        &[],
+    )?;
+    let mode = option(&args, "--mode")?;
+    let observation_path = optional_option(&args, "--observation")?;
+    let config_path = optional_option(&args, "--config")?;
+    let observation: TactileObservation = match (observation_path, config_path) {
+        (Some(path), None) => read_json_file(Path::new(&path), "tactile observation")?,
+        (None, Some(path)) => serde_json::from_value(capture_tactile(runtime, &path)?)
+            .map_err(|error| format!("invalid tactile observation: {error}"))?,
+        (Some(_), Some(_)) => return Err("use exactly one of --observation or --config".into()),
+        (None, None) => return Err("missing --observation or --config".into()),
+    };
+    let calibration: TactileCalibration = read_json_file(
+        Path::new(&option(&args, "--calibration")?),
+        "tactile calibration",
+    )?;
+    let now_ns = runtime::unix_time_ns()?;
+    let report = match mode.as_str() {
+        "baseline" => grasp_feedback::assess_baseline(&observation, &calibration, now_ns)?,
+        "closure" => grasp_feedback::assess_closure(&observation, &calibration, now_ns)?,
+        "retention" => {
+            let held_path = optional_option(&args, "--held")?
+                .ok_or_else(|| "retention assessment requires --held FILE".to_string())?;
+            let held: TactileObservation =
+                read_json_file(Path::new(&held_path), "held tactile observation")?;
+            grasp_feedback::assess_retention(&held, &observation, &calibration, now_ns)?
+        }
+        _ => return Err("--mode must be baseline, closure or retention".into()),
+    };
+    if mode != "retention" && optional_option(&args, "--held")?.is_some() {
+        return Err("--held is only valid with --mode retention".into());
+    }
+    println!(
+        "{}",
+        serde_json::to_string(&serde_json::json!({
+            "ok": true,
+            "schema_version": 1,
+            "mode": "tactile_assessment",
+            "assessment_mode": mode,
+            "observation": observation,
+            "assessment": report
+        }))
+        .map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn tactile_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    validate_command_args(&args, &["--config"], &[])?;
+    let report = capture_tactile(runtime, &option(&args, "--config")?)?;
+    println!(
+        "{}",
+        serde_json::to_string(&report).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn capture_tactile(runtime: &RuntimePaths, config_path: &str) -> Result<serde_json::Value, String> {
+    let config =
+        fs::canonicalize(config_path).map_err(|error| format!("{config_path}: {error}"))?;
+    let config = config.to_string_lossy().into_owned();
+    let output_root = runtime.data_root().join("sensors/tactile");
+    let root = output_root.to_string_lossy().into_owned();
+    let output = runtime.run_python_capture(
+        "tactile_adapter.py",
+        &["--config", config.as_str(), "--output-root", root.as_str()],
+    )?;
+    let report = parse_last_json(&output, "tactile adapter")?;
+    if report.get("ok") != Some(&serde_json::Value::Bool(true)) {
+        return Err(format!("tactile capture failed: {report}"));
+    }
+    Ok(report)
 }
 
 fn servo_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
@@ -354,6 +492,50 @@ fn optional_option(args: &[String], name: &str) -> Result<Option<String>, String
 
 fn flag(args: &[String], name: &str) -> bool {
     args.iter().any(|argument| argument == name)
+}
+
+fn read_json_file<T: for<'de> serde::Deserialize<'de>>(
+    path: &Path,
+    kind: &str,
+) -> Result<T, String> {
+    serde_json::from_slice(&fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?)
+        .map_err(|error| format!("invalid {kind} {}: {error}", path.display()))
+}
+
+fn parse_last_json(output: &str, source: &str) -> Result<serde_json::Value, String> {
+    output
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str(line).ok())
+        .ok_or_else(|| format!("{source} produced no JSON report: {}", output.trim()))
+}
+
+fn json_string<'a>(value: &'a serde_json::Value, name: &str) -> Result<&'a str, String> {
+    value
+        .get(name)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("JSON report is missing string field {name}"))
+}
+
+fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> Result<(), String> {
+    let mut index = 0;
+    while index < args.len() {
+        let argument = args[index].as_str();
+        if flags.contains(&argument) {
+            index += 1;
+        } else if options.contains(&argument) {
+            let Some(value) = args.get(index + 1) else {
+                return Err(format!("missing value after {argument}"));
+            };
+            if value.starts_with("--") {
+                return Err(format!("missing value after {argument}"));
+            }
+            index += 2;
+        } else {
+            return Err(format!("unsupported argument {argument:?}"));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const D405_FRAME_EVIDENCE_MAX_AGE_MS: f64 = 3_000.0;
+const D405_MIN_DEPTH_VALID_RATIO: f64 = 0.50;
+const TACTILE_EVIDENCE_MAX_AGE_MS: f64 = 1_000.0;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,17 +70,18 @@ pub fn inspect() -> Result<SensorStatus, String> {
         .map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
     let serial = enumeration.as_deref().and_then(d405_serial);
     let speed = d405_device.as_ref().and_then(|path| read_speed(path).ok());
-    // No D405 frame adapter or dated sustained-stream verification is connected
-    // to this process yet. Enumeration and link speed alone cannot prove frames.
-    let sustained_stream_verified = false;
+    let sustained_stream_verified = serial
+        .as_deref()
+        .is_some_and(|serial| fresh_d405_frame_verified(serial).unwrap_or(false));
     let (health, reason) = classify_d405(
         d405_device.is_some() && serial.is_some(),
         speed,
         sustained_stream_verified,
     );
+    let tactile_stream_verified = fresh_tactile_sample_verified().unwrap_or_default();
     let tactile_candidates = find_usb_devices("1a86", "7523")?
         .into_iter()
-        .map(|path| serial_candidate(&path))
+        .map(|path| serial_candidate(&path, &tactile_stream_verified))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SensorStatus {
         d405: D405Status {
@@ -102,11 +109,52 @@ fn classify_d405(
         );
     }
     match speed {
-        Some(value) if value >= 5_000 && sustained_stream_verified => (Health::Healthy, format!("librealsense sustained stream verified on {value} Mbit/s USB path")),
+        Some(value) if sustained_stream_verified => (Health::Healthy, format!("fresh bounded librealsense RGB/depth stream verified on {value} Mbit/s USB path")),
         Some(value) if value >= 5_000 => (Health::Degraded, format!("librealsense enumerated on {value} Mbit/s USB path, but sustained streaming is not verified")),
         Some(value) => (Health::Degraded, format!("librealsense enumerated, but {value} Mbit/s USB path is below USB 3.x and has disconnected under streaming load")),
         None => (Health::Degraded, "librealsense enumerated, USB link speed unknown".into()),
     }
+}
+
+#[derive(Deserialize)]
+struct D405FrameEvidence {
+    ok: bool,
+    mode: String,
+    serial: String,
+    received_at_ns: u64,
+    depth_valid_ratio: f64,
+    sustained_stream_verified: bool,
+}
+
+fn fresh_d405_frame_verified(expected_serial: &str) -> Result<bool, String> {
+    let root = std::env::var_os("XR1_WORKSPACE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/home/astrabot/workspace"));
+    let path = root.join("data/sensors/d405/latest.json");
+    let report: D405FrameEvidence = serde_json::from_slice(
+        &fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?,
+    )
+    .map_err(|error| format!("invalid D405 evidence {}: {error}", path.display()))?;
+    if !report.ok
+        || report.mode != "d405_near_field_observation"
+        || report.serial != expected_serial
+        || !report.sustained_stream_verified
+        || !report.depth_valid_ratio.is_finite()
+        || report.depth_valid_ratio < D405_MIN_DEPTH_VALID_RATIO
+    {
+        return Ok(false);
+    }
+    let now_ns: u64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos()
+        .try_into()
+        .map_err(|_| "system timestamp does not fit u64".to_string())?;
+    if now_ns < report.received_at_ns {
+        return Ok(false);
+    }
+    let age_ms = (now_ns - report.received_at_ns) as f64 / 1_000_000.0;
+    Ok(age_ms <= D405_FRAME_EVIDENCE_MAX_AGE_MS)
 }
 
 fn d405_serial(output: &str) -> Option<String> {
@@ -117,30 +165,122 @@ fn d405_serial(output: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn serial_candidate(path: &Path) -> Result<SerialCandidate, String> {
+fn serial_candidate(
+    path: &Path,
+    verified_endpoints: &BTreeSet<String>,
+) -> Result<SerialCandidate, String> {
     let tty = find_tty(path)?;
-    let health = if tty.is_some() {
+    let usb_path = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let tactile_stream_verified = verified_endpoints.contains(&usb_path)
+        || tty
+            .as_ref()
+            .is_some_and(|device| verified_endpoints.contains(device));
+    let health = if tactile_stream_verified {
+        Health::Healthy
+    } else if tty.is_some() {
         Health::Degraded
     } else {
         Health::Unavailable
     };
-    let reason = if tty.is_some() {
+    let reason = if tactile_stream_verified {
+        "fresh two-pad pressure samples are available through the configured hardware boundary"
+    } else if tty.is_some() {
         "serial node exists, but the 115200 query/response frame and left/right mapping are unverified"
     } else {
         "USB UART is present but this kernel exposes no tty driver node"
     };
     Ok(SerialCandidate {
-        usb_path: path
-            .file_name()
-            .and_then(|v| v.to_str())
-            .unwrap_or("unknown")
-            .into(),
+        usb_path,
         vendor_product: "1a86:7523 CH340".into(),
         tty,
         health,
-        role: "tactile_candidate_unverified".into(),
+        role: if tactile_stream_verified {
+            "tactile_pressure_pad".into()
+        } else {
+            "tactile_pressure_pad_unverified".into()
+        },
         reason: reason.into(),
     })
+}
+
+#[derive(Deserialize)]
+struct TactileFrameEvidence {
+    ok: bool,
+    mode: String,
+    sensor_stamp_ns: u64,
+    received_at_ns: u64,
+    sources: Vec<TactileSourceEvidence>,
+    pads: Vec<TactilePadEvidence>,
+}
+
+#[derive(Deserialize)]
+struct TactileSourceEvidence {
+    endpoint: String,
+}
+
+#[derive(Deserialize)]
+struct TactilePadEvidence {
+    id: String,
+    raw: f64,
+    median_abs_deviation: f64,
+    sample_count: usize,
+}
+
+fn fresh_tactile_sample_verified() -> Result<BTreeSet<String>, String> {
+    let root = std::env::var_os("XR1_WORKSPACE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/home/astrabot/workspace"));
+    let path = root.join("data/sensors/tactile/latest.json");
+    let report: TactileFrameEvidence = serde_json::from_slice(
+        &fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?,
+    )
+    .map_err(|error| format!("invalid tactile evidence {}: {error}", path.display()))?;
+    let mut ids = report
+        .pads
+        .iter()
+        .map(|pad| pad.id.as_str())
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    if !report.ok
+        || report.mode != "tactile_observation"
+        || report.pads.len() != 2
+        || ids.len() != 2
+        || report.pads.iter().any(|pad| {
+            !pad.raw.is_finite()
+                || !pad.median_abs_deviation.is_finite()
+                || pad.sample_count < crate::grasp_feedback::MIN_PAD_SAMPLES
+        })
+    {
+        return Ok(BTreeSet::new());
+    }
+    let now_ns: u64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos()
+        .try_into()
+        .map_err(|_| "system timestamp does not fit u64".to_string())?;
+    if now_ns < report.received_at_ns
+        || now_ns < report.sensor_stamp_ns
+        || report.sensor_stamp_ns == 0
+        || report.sensor_stamp_ns > report.received_at_ns
+    {
+        return Ok(BTreeSet::new());
+    }
+    let age_ms = ((now_ns - report.received_at_ns).max(now_ns - report.sensor_stamp_ns)) as f64
+        / 1_000_000.0;
+    if age_ms > TACTILE_EVIDENCE_MAX_AGE_MS {
+        return Ok(BTreeSet::new());
+    }
+    Ok(report
+        .sources
+        .into_iter()
+        .map(|source| source.endpoint)
+        .collect())
 }
 
 fn find_usb_device(vendor: &str, product: &str) -> Result<Option<PathBuf>, String> {
@@ -215,5 +355,10 @@ mod tests {
     #[test]
     fn usb3_with_sustained_stream_is_healthy() {
         assert_eq!(classify_d405(true, Some(5_000), true).0, Health::Healthy);
+    }
+
+    #[test]
+    fn fresh_bounded_stream_can_gate_one_step_even_on_usb2() {
+        assert_eq!(classify_d405(true, Some(480), true).0, Health::Healthy);
     }
 }

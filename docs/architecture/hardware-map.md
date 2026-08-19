@@ -236,8 +236,9 @@ Bus 002 root_hub (tegra-xusb/4p, 20000M/x2)
 2026-08-18 真机复核：`rs-enumerate-devices -s` 识别 D405 序列号
 `262422270599`，所以“D405 不存在”是错误结论。它当前位于 480M USB 2.0
 链路，ROS 驱动打开 `848x480@10` 后出现过 protocol error、断开和重新枚举；能力状态应为
-`DEGRADED`，不是 `UNAVAILABLE`，在移到 Bus 002 的 5000M hub 并完成持续流测试前不得用于
-近场闭环动作。
+`DEGRADED`，不是 `UNAVAILABLE`。持久能力仍建议移到 Bus 002 的 5000M hub；当前软件只在
+每次动作前重新取得 `848x480@10` 的连续新鲜 RGB/深度帧、通过帧间隔和有效深度检查时，
+临时授权一个有界近场事务。
 
 同次复核看到两颗 `1a86:7523` CH340。它们可能是操作者说明的触觉垫片聚合器，但当前
 内核没有 `ch341` 驱动，因此没有 tty 节点，115200 协议也无法取帧。`/dev/ttyUSB0`
@@ -530,7 +531,7 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 
 | # | 现象 | 实测证据 | 影响 / 建议 |
 |---|---|---|---|
-| D1 | **CH340 没有驱动** | `1a86:7523` @ `1-3.4.3` 枚举成功但 `Driver=[none]`，无 tty 节点。`modinfo ch341` → `Module ch341 not found`；`/lib/modules/6.8.12-rt-tegra/kernel/drivers/usb/serial/` 里只有 `cp210x/ftdi_sio/garmin_gps/option/usbserial/usb_wwan`，**没有 `ch341.ko`** | 这颗芯片当前完全是死的。已确认它**不是**夹爪（两个夹爪都已定位，见 §5）。如果它有用途，需要单独编 `ch341` 模块。若无用途，可以拔掉减少困惑 |
+| D1 | **CH340 没有内核 tty 驱动** | `1a86:7523` @ `1-3.4.3` 枚举成功但 `Driver=[none]`，无 tty 节点。`modinfo ch341` → `Module ch341 not found`；`/lib/modules/6.8.12-rt-tegra/kernel/drivers/usb/serial/` 里没有 `ch341.ko`。08-19 操作者确认夹爪内两片压力传感器已接线且曾测到数据 | 无 tty 不等于设备不能访问；`py/tactile_adapter.py` 已提供显式 USB 路径的用户态 PyUSB/CH340 边界。仍须实测准确端口、帧字段和两贴片映射，且 `/dev/ttyUSB0` 是夹爪，绝不能误用 |
 | D2 | ~~**Orbbec 深度相机没有驱动**~~ → **2026-08-11 部分证伪。`Driver=[none]` 对这颗是正常的** | `2bc5:069f ORBBEC Depth Sensor` @ `1-3.2`（serial `CH7PB4200C8`）确实 `Driver=[none]`、确实**没有 video 节点** —— 但那是因为它是 **vendor class（`bInterfaceClass 0xFF`）走 OpenNI/libusb 的设备**，本来就不该有内核驱动或 `/dev/video*`。实测已取到深度流：**640×400@15Hz**，`fx=fy=306.44, cx=317.28, cy=195.87`，FOV 92.5°×66.3°，**只有 depth+IR 没有 RGB** | 🟠 **这条是 D3 那个推理错误的重犯**（「`Driver=[none]` ⇒ 功能不可用」）—— 同一份清单里连着两条栽在同一个坑，所以那条元教训值钱：**测你关心的量（有没有帧），不要测它的代理（驱动绑定 / video 节点）**。起节点必须显式 `depth_height:=400`（厂商 launch 默认 480 是**无效值**）+ `publish_tf:=false`；udev 规则已装，免 root。✅ **08-11 定案：就是 08-10 那颗，被挪到了右腕**（操作者口述两次：「同一颗，我把它挪到右手了」「右手算了就不连接了以后也不用，右手已经有双目了」）。所以「`1-3.2` 从 08-10 就被占着」和「右手新加了一个」不矛盾 —— **换的是安装位置，不是设备**；「双目」是它两颗 IR 镜头的外观。⚠️ 这是**操作者证词，不是仪器测量**（我自己那两个判据都是坏的，见 `../operations/pitfalls.md` §48）。右腕的单目 UVC 为装它而拆除且**永久不再装回**。`/chassis_{left,right}_camera` 深度话题来自 ECU，不是这颗 |
 | D3 | ~~ZED HID 接口无驱动 → IMU 拿不到~~ → **已证伪** | `2b03:f881 ZED-2i HID INTERFACE` @ `1-2.2` 确实 `Driver=[none]`（内核层面是真的），但 **`/zed/zed_node/imu/data` 实测 ~99 Hz**（2026-08-10）| ✅ **IMU 是可用的。** ZED SDK 自己拿 `hidraw`，不需要内核 usbhid 驱动。「`Driver=[none]` ⇒ 功能不可用」这个推理在这里是错的 —— 这正是 `../operations/pitfalls.md` 元教训 5「测你关心的量，不要测它的代理」的一个实例：该测话题频率，不是测驱动绑定 |
 | D4 | 系统长期过载 | `loadavg 31.25 30.76 32.31` / 14 核 ≈ **2.2×** | 这是 ZED 降到 15 Hz 的根因之一。任何时序敏感的实验前先 `top` 看一眼谁在吃 CPU |
@@ -540,7 +541,7 @@ ros2_control/astrabot_hwcontrol_xr1_arm_head.ros2_control.xacro
 | D8 | 控制器日志有 getActuatorIndex 异常 | `[FATAL] mainThread: id 82/92/109, getActuatorIndex -1 exception` | id 82/92/109 不在 §4 那 14 个里，也不是夹爪的 101/102。**尚未查清是谁在问这些 id**，待排 |
 | D9 | `/dev/ttyAMA4` 用途不明 | 6 波特率 × 5 slave id 只读扫描全静默 | 可能是预留口，也可能对面设备没上电。**不要假设它是空的**就拿去接别的东西 |
 | D10 | ~~手臂 `/joint_states` 单位不是弧度~~ → **已证伪。真正的缺陷是：控制器收到第一条指令之前，手臂反馈是未锁存的无效值** | `scripts/arm_unit_probe.py` 实测：指令 +0.174533 rad → 反馈增量 +0.174526，**系数 1.0000 = 弧度**；发过第一条指令后 14 路全部落到 ±0.000006 并稳住（1530 帧，极差 3 µrad） | 🟠 **仍然危险，但危险点变了**：`报出值 × 减速比` 恒为 95.8738 整数倍那套算术是**冷启动**现象，不是单位问题。**规则：先发一条指令，再信反馈。** 绝不要在控制器刚起来时用 `/joint_states` 构造「保持当前位姿」—— 那正是把 `left_arm_6` 发到 544°（限位 ±1.57 rad）的方式。安全起点是全 14 路发常量 `0.0`。详见 ADR 0003 所述的已删文档 |
-| D11 | **全机没有力 / 力矩 / 接触反馈** | `effort` 在 16 个关节上全是 `.nan`；夹爪状态数组里 `running/temp/error` 在 `g2_gripper_node.py` 里**硬编码为 0**，只有 `pos_mm` 是真传感器 | 不能靠触碰探测桌高；不能对夹持力闭环（`force_cmd` 是开环丢给固件）。**唯一可用的接触代理**：命令开口 vs 实际 `pos_mm`，卡住比命令值宽 = 指间有东西（`scripts/gripper_cmd.py --ramp` 已实现） |
+| D11 | ~~**全机没有力 / 力矩 / 接触反馈**~~ → **08-19 部分证伪** | `effort` 在 16 个关节上仍全是 `.nan`，G2 状态也仍只有 `pos_mm` 可信；但操作者确认夹爪内部两片压力贴片已接入且曾读到数据 | 手臂关节力反馈确实不存在，不能靠手臂触碰探测桌高。夹爪接触不再只剩开口阻塞代理：两贴片软件边界和闭环决策已补上，但协议、映射、阈值与真机闭环记录未完成前继续 fail closed |
 | D12 | 头部看不到自己的工作区 | `head_pitch` 必须压到 **+40° 限位**，ZED 视野才和手臂可达区有交集；居中所需的角度**超出限位** | 桌面精细判定只能靠**腕部相机**，不能指望头部 ZED。这条反向约束了判定器设计，见 `09_*.md` §1 |
 | **D13** | **ZED 自己那棵 TF 会整棵消失，而图像话题照发**（2026-08-11 新增） | 08-10 16:22 起持续一整夜：机体 TF 完好、`/zed/.../image/compressed` 正常在发，但 **6 个 zed frame 一个都没有**，感知报拿不到 `base_link ← zed_camera_link`。哑掉的是 `zed_state_publisher` | 🔴 **判据是「数 zed frame 个数」（正常 6，`<5` 即故障），不是看图像 Hz。** `tf2_echo base_link zed_camera_link` 会**误报正常**。修法：`systemctl restart Astrabot_ZED.service`（~45 s 后复验）。这条故障期间 `xr1.py status` 一直全绿 —— 因为它只查图像话题。现在数 frame 的是 `bin/tf-frames`（`../operations/pitfalls.md` §38）|
 | **D14** | **串口设备节点会被重新枚举，而持有它的驱动进程照样活着**（2026-08-11 新增） | 08-11 **00:04** `/dev/ttyAMA5`(204,69) 与 `/dev/ttyUSB0`(188,0) 被重新创建；`g2_gripper_node` (pid 487809) 启动于此之前，`fuser -v` 显示它仍占着这两个节点，但读回全静默。**`SIGTERM` 无效**（阻塞在串口 read 上） | 🔴 **只有 `kill -9`。** 判据是**比时间戳**：`ls -l /dev/tty*` 的创建时间 vs `ps -o lstart= -p <pid>` —— **设备比进程新 ⇒ 废 fd**。⚠️ `xr1.py bringup` 在这个状态下**修不了**：它的存在判据是 `pgrep`，进程在就不重拉（它会如实打印 `STILL SILENT`，但那容易被读成"再等等"）。元教训：**「进程在」≠「设备可用」**（`../operations/pitfalls.md` §39）|

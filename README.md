@@ -47,6 +47,9 @@ xr1-vision replay --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
 xr1-vision fk J1 .. J7            # fingertip-pad FK, for hand-eye work
 xr1-vision sensor-status          # D405 / tactile capability report
+xr1-vision d405-observe           # fresh aligned RGB/depth + near-field target signal
+xr1-vision tactile-observe --config TACTILE_CONFIG
+xr1-vision tactile-assess --mode closure --config TACTILE_CONFIG --calibration TACTILE_CALIBRATION
 xr1-vision servo-pads --frame FRAME_DIR
 xr1-vision servo-observe --latest LATEST_JSON
 xr1-vision servo-calibrate --input PLUS_MINUS_SAMPLES_JSON
@@ -58,6 +61,9 @@ xr1-vision servo-step --proposal /tmp/servo-proposal.json --go  # exactly one mi
 xr1-vision servo-reconcile --input RECONCILIATION_JSON
 xr1-vision servo-loop --calibration CALIBRATION_JSON             # fresh dry-run
 xr1-vision servo-loop --calibration CALIBRATION_JSON --go        # bounded live loop
+xr1-vision grasp-loop --tactile-config TACTILE_CONFIG \
+  --tactile-calibration TACTILE_CALIBRATION --d405-target D405_TARGET
+# Add --go only after the dry run passes; each jaw step is at most 0.05.
 ```
 
 Read [`docs/operations/status.md`](docs/operations/status.md) before moving the
@@ -74,6 +80,7 @@ believing any single reading. Several sessions share this one machine.
 | The servo signal uses the two physical orange pads near FK, not the larger orange fruit | named frame `20260818-120701-385142786-132823` in the Rust perception regression |
 | A microstep must be followed by a distinct newer observation and stops on a sign flip or three reductions below 10% | reconciliation tests in `visual_servo.rs` |
 | The live loop performs at most one approved microstep between observations, has step/time/concurrency bounds, and never starts, stops or restarts a service | `servo-loop`, the Rust safety envelope and `servo_adapter.py` |
+| The near-field/contact loop cannot close twice from one pressure sample, stops on pad imbalance, and permits only one release increment after overpressure | `grasp-loop`, `grasp_feedback.rs`, `grip_adapter.py` and their offline tests |
 | Task events cannot skip observation, grounding, geometry, validation or physical verification stages | state-transition tests in `task/executive.rs` |
 | One grasp succeeded | 2026-08-18, gripper reads 149 closed on the object vs 14 closed on air, and it stayed at 148 after lifting |
 | Motion is rate-limited and clamped to the live URDF | `py/astra_arm.py`, refuses on stale `/joint_states` or a busy command channel |
@@ -83,12 +90,14 @@ believing any single reading. Several sessions share this one machine.
 - **Grasping is orientation-dependent.** The one success came from a block yaw
   that put the tool-frame error across the closing axis. Nothing was fixed; a
   different yaw still fails.
-- **No force sensing.** `effort` is `.nan` on every joint. A request that marks
-  force feedback as required now fails closed; grasp verification still uses
-  the measured G2 obstruction signal followed by lift retention.
-- **Near-field sensing is not execution-ready.** The D405 is present but on a
-  degraded 480 Mbit/s path; the two tactile CH340 devices have no tty driver or
-  verified frame contract.
+- **No joint/arm force feedback.** `effort` is `.nan` on every joint, so a
+  request that requires that channel still fails closed. Two pressure patches
+  do exist inside the gripper; their software boundary and deterministic
+  contact policy are implemented separately from joint effort.
+- **Near-field hardware is not yet live-validated.** D405 capture, CH340/PyUSB
+  pressure capture and the bounded grasp loop are implemented, but the current
+  robot still needs its exact USB paths, frame fields, pad mapping, pressure
+  thresholds and D405 target/Jacobian measured before `--go` can pass.
 - **The bounded visual-servo orchestration is implemented, but the current 3×3
   Jacobian has not yet been re-measured and validated on live hardware.**
   `servo-loop` makes capture and reconciliation mandatory before another step,

@@ -49,11 +49,24 @@ and an append-only JSONL session record. It never starts, stops or restarts a
 service. If the adapter errors after motion authorization, the loop attempts a
 mandatory recovery observation, records the indeterminate step and stops.
 
+For final wrist-camera alignment, use a Jacobian measured from D405 samples and
+an explicit calibrated target. This switches the loop's actual observer; it is
+not merely a USB-presence requirement. Both artifacts must carry the generated
+`d405-*` frame IDs, and the calibration may name only right-arm joints:
+
+```bash
+xr1-vision servo-loop --calibration /tmp/d405-jacobian.json \
+  --d405-target /tmp/d405-grasp-target.json
+xr1-vision servo-loop --calibration /tmp/d405-jacobian.json \
+  --d405-target /tmp/d405-grasp-target.json --go
+```
+
 `--require-d405`, `--require-tactile` and `--require-force-feedback` turn those
-capabilities into hard gates. On the currently measured hardware all three
-requests refuse: D405 is degraded, tactile is unavailable, and real force
-feedback does not exist. Omitting them selects the verified ZED visual loop; it
-does not relabel those missing signals as healthy.
+capabilities into hard gates. A fresh successfully validated D405 frame or
+two-pad pressure sample can make the corresponding capability healthy for one
+bounded transaction. Arm force feedback still does not exist and always
+refuses. Omitting `--d405-target` selects the ZED visual loop; it does not
+relabel a missing D405 frame as healthy.
 
 The adapter re-checks envelope age, live `/joint_states`, start drift and
 command-channel idleness. A real action returns `requires_reobservation=true`.

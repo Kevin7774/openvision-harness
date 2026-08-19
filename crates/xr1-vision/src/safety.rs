@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use crate::hardware::SensorStatus;
 use crate::kinematics::{Chain, PLANNING_MIN_LIMIT_MARGIN_RAD, PLANNING_MIN_TIP_Z_M};
-use crate::observation::ObservationState;
+use crate::observation::{JointState, ObservationState};
 use crate::visual_servo::{SensorRequirements, ServoProposal};
 
 pub const MAX_SERVO_STEP_RAD: f64 = 0.05;
@@ -51,12 +51,36 @@ pub fn evaluate_servo(
     sensors: &SensorStatus,
     now_ns: u64,
 ) -> Result<ServoSafetyReport, String> {
+    evaluate_servo_live(
+        chain,
+        &state.frame_id,
+        state.received_at_ns,
+        &state.joint_state,
+        expected_frame_id,
+        proposal,
+        requirements,
+        sensors,
+        now_ns,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate_servo_live(
+    chain: &Chain,
+    state_frame_id: &str,
+    state_received_at_ns: u64,
+    joint_state: &JointState,
+    expected_frame_id: &str,
+    proposal: &ServoProposal,
+    requirements: &SensorRequirements,
+    sensors: &SensorStatus,
+    now_ns: u64,
+) -> Result<ServoSafetyReport, String> {
     let names = chain.names();
     let mut current_joints_rad = BTreeMap::new();
     let mut current = Vec::with_capacity(names.len());
     for name in &names {
-        let value = state
-            .joint_state
+        let value = joint_state
             .positions_rad
             .get(name)
             .and_then(|value| *value)
@@ -94,8 +118,8 @@ pub fn evaluate_servo(
         .zip(target.iter().copied())
         .collect::<BTreeMap<_, _>>();
     let envelope = chain.motion_envelope(&current, &target, PATH_SAMPLES)?;
-    let observation_age_ms = age_ms(now_ns, state.received_at_ns);
-    let joint_state_age_ms = age_ms(now_ns, state.joint_state.received_at_ns);
+    let observation_age_ms = age_ms(now_ns, state_received_at_ns);
+    let joint_state_age_ms = age_ms(now_ns, joint_state.received_at_ns);
     let tactile_healthy = sensors
         .tactile_candidates
         .iter()
@@ -105,10 +129,10 @@ pub fn evaluate_servo(
     push_check(
         &mut checks,
         "observation_binding",
-        state.frame_id == expected_frame_id,
+        state_frame_id == expected_frame_id,
         format!(
             "request={} observation={}",
-            expected_frame_id, state.frame_id
+            expected_frame_id, state_frame_id
         ),
     );
     push_check(
