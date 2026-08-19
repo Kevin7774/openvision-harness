@@ -1,5 +1,5 @@
 use crate::perception::ObjectGeometry;
-use crate::proposal::VisionHarnessProposal;
+use crate::proposal::TaskProposal;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -21,7 +21,7 @@ pub struct PlanReport {
     pub ok: bool,
     pub schema_version: u32,
     pub mode: String,
-    pub proposal: VisionHarnessProposal,
+    pub proposal: TaskProposal,
     pub observation_frame_id: String,
     pub sensor_stamp_ns: u64,
     pub observation_received_at_ns: u64,

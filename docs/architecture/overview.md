@@ -18,7 +18,9 @@ Two consequences shape everything else:
 ## Layers
 
 ```
-Agent      you / an LLM          emit a semantic VisionHarnessProposal
+Agent      you / an LLM          emit a semantic TaskProposal v2
+  |
+Executive  Rust task module      evidence-driven stage transitions and replay
   |
 Planner    xr1-vision plan       image -> object pose -> grasp candidates -> IK
   |
@@ -43,7 +45,8 @@ planning does not publish to hardware.
 
 | Module | Responsibility |
 |---|---|
-| `proposal.rs` | typed semantic task intent; no Cartesian or joint pose fields |
+| `proposal.rs` | natural-language task, target/destination relations and success predicates; no Cartesian or joint pose fields |
+| `task/` | deterministic observe/plan/act/verify/diagnose state transitions and replay |
 | `perception/` | read one observation and produce measured object geometry |
 | `planning/` | full-circle coarse roll search, top-K local refinement, typed `GraspCandidate` ranking |
 | `kinematics/model.rs` | URDF chain, FK, gripper-pad geometry and shared motion envelope |
@@ -51,7 +54,7 @@ planning does not publish to hardware.
 | `kinematics/grasp.rs` | contact and closing-axis feasibility |
 | `visual_servo.rs` | turn a named 3×3 image-Jacobian measurement into a bounded joint-space proposal |
 | `safety.rs` | bind a proposal to fresh evidence and apply deterministic step, URDF margin, floor-path and sensor-capability gates |
-| `observation.rs` | shared typed observation/joint/TF contract used by perception and safety |
+| `observation.rs` | unified ZED artifact, joint, TF, gripper and sensor-capability bundle |
 | `hardware.rs` | read-only D405 and tactile capability discovery; no task policy |
 | `cli.rs` | command dispatch and stable JSON boundaries |
 | `runtime.rs` | workspace paths and the ROS-initialised Python process boundary |
@@ -63,7 +66,11 @@ Commands:
 ```
 xr1-vision preflight                       py/xr1.py pose + py/xr1_cam.py doctor
 xr1-vision observe                         py/vista_observe.py -> data/vista_runs/<run>/latest.json
-xr1-vision plan [--proposal FILE]          semantic proposal -> object geometry -> candidates
+xr1-vision bundle [--latest FILE]          unified immutable observation contract
+xr1-vision validate-proposal --proposal P  validate/upgrade TaskProposal v2
+xr1-vision plan [--proposal P] [--latest L]
+                                              saved observation -> geometry -> candidates
+xr1-vision replay --proposal P --events E  deterministic task-state replay; no motion
 xr1-vision fk J1 .. JN                     pad-inner points, midpoint and tool rotation
 xr1-vision sensor-status                   read-only D405 / tactile capability state
 xr1-vision servo-propose --input I --state S
@@ -75,7 +82,7 @@ xr1-vision end --status SUCCESS|FAILED
 xr1-vision status
 ```
 
-`observe` and `plan` are deliberately separate processes: `observe` touches
+`observe`, `bundle` and `plan` are deliberately separate: `observe` touches
 hardware and `plan` is pure computation over files, so a plan can be re-run and
 argued with long after the frame was taken. `plan` moves nothing --- its output
 is labelled `online_plan_dry_run` and executing it is a separate, human decision.
@@ -92,7 +99,7 @@ The semantic proposal and typed candidate schemas are specified in
 |---|---|
 | `xr1.py` | the robot API: `bringup`, `pose`, `look`, `grip`, `home`, `wave`, `demo`, `rec`, `snap` |
 | `astra_arm.py` | the safety layer wrapping the vendor SDK (see below) |
-| `vista_observe.py` | read-only ZED snapshot: RGB, aligned depth, intrinsics, image-time TF |
+| `vista_observe.py` | read-only ZED snapshot: RGB, aligned depth, intrinsics, image-time TF, joints and optional gripper readings |
 | `xr1_cam.py` | drive the external recorder on the Mac at 192.168.123.138 |
 | `pad_offset_measure.py` | measure the gripper-pad pixel offset against `xr1-vision fk` |
 | `motion_adapter.py` | validate a typed Rust plan, select a fully feasible candidate and execute one phase |

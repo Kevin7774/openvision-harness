@@ -62,10 +62,14 @@ table *position* does.
 
 ## What works
 
-- **Perception → grasp plan**: `xr1-vision observe` then `xr1-vision plan`.
+- **Task proposal → perception → grasp plan**: `xr1-vision observe` then
+  `xr1-vision plan`. `TaskProposal` schema v2 carries the natural-language
+  command, target/destination relations and success predicates; schema v1 files
+  are upgraded at the boundary. The deterministic task executive covers
+  observe through verify/place/diagnose as a replayable event state machine.
   The colour mask separates the block from the green cube *and* from the
   gripper's own orange pads (3 tests, thresholds measured off named frames).
-  `plan --proposal FILE` accepts a typed semantic `VisionHarnessProposal`; Rust
+  `plan --proposal FILE` accepts the typed semantic task; Rust
   retains ownership of closing axis, full-circle roll search, IK and ranking.
 - **Rate-limited motion**: `py/astra_arm.py` ramps from the measured pose, caps
   velocity, clamps to the live URDF, and refuses on stale feedback or a busy
@@ -120,6 +124,7 @@ mistaken for coverage.
 | Gripper body has no collision model; only the fingertip pose is floor-checked | a plan clearing the table by a few mm is unverified, not safe ([kinematics](../architecture/kinematics.md)) |
 | The tool-frame error is open and partly rotational | grasping is orientation-dependent; the 08-18 success is not repeatable at another block yaw ([ADR 0004](../decisions/0004-tool-frame-error-is-still-open.md)) |
 | Visual servo has no live measurement/execution loop | the Rust proposal is safe to inspect but cannot yet close the physical loop; [implementation status](../development/visual-servo.md) |
+| Task executive is replay-only | live orchestration still has to turn each real observation/action/evidence result into the same ordered event contract |
 | D405 is on a degraded USB 2.0 path and tactile has no verified tty/protocol | near-field and contact-dependent proposals fail closed |
 | No `cargo deny` / `nextest`; `cargo audit` cannot run on rustc 1.75 | licence drift is unchecked; advisories are covered instead by `bin/audit-deps` (0 of 41 crates vulnerable) ([building](../development/building.md)) |
 

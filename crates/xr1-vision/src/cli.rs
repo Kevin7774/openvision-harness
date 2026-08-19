@@ -4,12 +4,13 @@ use crate::kinematics::Chain;
 use crate::observation;
 use crate::perception;
 use crate::planning;
-use crate::proposal::VisionHarnessProposal;
+use crate::proposal::TaskProposal;
 use crate::runtime::RuntimePaths;
 use crate::safety;
+use crate::task::{TaskEventRecord, TaskExecutive};
 use crate::visual_servo;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RUN_ID: &str = "yellow-block-harness";
@@ -25,6 +26,9 @@ where
         Some("preflight") => preflight(&runtime),
         Some("observe") => observe(&runtime),
         Some("plan") => plan(&runtime, args.collect()),
+        Some("validate-proposal") => validate_proposal(args.collect()),
+        Some("bundle") => bundle(&runtime, args.collect()),
+        Some("replay") => replay(args.collect()),
         Some("fk") => fk(&runtime, args.collect()),
         Some("begin") => {
             let args = args.collect::<Vec<_>>();
@@ -60,7 +64,10 @@ fn print_help() {
     println!("xr1-vision <command>");
     println!("  preflight");
     println!("  observe");
-    println!("  plan [--proposal FILE]  # semantic proposal -> perception -> grasp candidates");
+    println!("  plan [--proposal FILE] [--latest FILE] # semantic proposal -> grasp candidates");
+    println!("  validate-proposal --proposal FILE # validate/upgrade TaskProposal to schema v2");
+    println!("  bundle [--latest FILE] # unified ZED/robot/capability observation JSON");
+    println!("  replay --proposal FILE --events FILE # deterministic task-state replay");
     println!("  fk J1 .. JN             # fingertip-pad FK + tool rotation");
     println!("  begin --purpose TEXT");
     println!("  note --section NAME --text TEXT");
@@ -86,19 +93,76 @@ fn observe(runtime: &RuntimePaths) -> Result<(), String> {
 
 fn plan(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
     let proposal = match optional_option(&args, "--proposal")? {
-        Some(path) => VisionHarnessProposal::read(Path::new(&path))?,
-        None => VisionHarnessProposal::yellow_block(),
+        Some(path) => TaskProposal::read(Path::new(&path))?,
+        None => TaskProposal::yellow_block_grasp(),
     };
-    let latest = runtime
-        .data_root()
-        .join("vista_runs")
-        .join(RUN_ID)
-        .join("latest.json");
-    let frame = perception::observe_object(&latest, &proposal)?;
+    let latest = optional_option(&args, "--latest")?
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            runtime
+                .data_root()
+                .join("vista_runs")
+                .join(RUN_ID)
+                .join("latest.json")
+        });
+    let request = proposal.grasp_request()?;
+    let frame = perception::observe_object(&latest, &request)?;
     let report = planning::plan(proposal, frame, runtime.arm_urdf())?;
     println!(
         "{}",
         serde_json::to_string(&report).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn validate_proposal(args: Vec<String>) -> Result<(), String> {
+    let path = option(&args, "--proposal")?;
+    let proposal = TaskProposal::read(Path::new(&path))?;
+    println!(
+        "{}",
+        serde_json::to_string(&proposal).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn bundle(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    let latest = optional_option(&args, "--latest")?
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            runtime
+                .data_root()
+                .join("vista_runs")
+                .join(RUN_ID)
+                .join("latest.json")
+        });
+    let report = observation::bundle_from_latest(&latest, hardware::inspect()?)?;
+    println!(
+        "{}",
+        serde_json::to_string(&report).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn replay(args: Vec<String>) -> Result<(), String> {
+    let proposal_path = option(&args, "--proposal")?;
+    let events_path = option(&args, "--events")?;
+    let proposal = TaskProposal::read(Path::new(&proposal_path))?;
+    let contents =
+        fs::read_to_string(&events_path).map_err(|error| format!("{events_path}: {error}"))?;
+    let mut events = Vec::new();
+    for (index, line) in contents.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record = serde_json::from_str::<TaskEventRecord>(line).map_err(|error| {
+            format!("invalid task event {}:{}: {error}", events_path, index + 1)
+        })?;
+        events.push(record);
+    }
+    let snapshot = TaskExecutive::replay(proposal, events)?;
+    println!(
+        "{}",
+        serde_json::to_string(&snapshot).map_err(|error| error.to_string())?
     );
     Ok(())
 }

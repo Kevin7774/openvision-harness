@@ -1,13 +1,25 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "task": "grasp",
-  "object_id": "yellow_block",
-  "intent": "top_down",
-  "preferred_closing_axis": null,
+  "command": "抓住黄色方块",
+  "target": {
+    "object_id": "yellow_block",
+    "description": "黄色方块"
+  },
+  "destination": null,
+  "grasp": {
+    "intent": "top_down",
+    "preferred_closing_axis": null
+  },
   "constraints": {
     "object_visible": true,
     "avoid_table_collision": true
   },
+  "success_predicates": [
+    {
+      "type": "target_held"
+    }
+  ],
   "reasoning": "The yellow block is the current measured target.",
   "prediction": "A top-down candidate should pass IK and contact geometry."
 }

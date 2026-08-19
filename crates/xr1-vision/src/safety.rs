@@ -240,6 +240,7 @@ mod tests {
             frame_id: "frame-1".into(),
             sensor_stamp_ns: 900_000_000,
             received_at_ns: 1_000_000_000,
+            grippers: HashMap::new(),
             tf: Transform {
                 target_frame: "base_link".into(),
                 source_frame: "camera".into(),

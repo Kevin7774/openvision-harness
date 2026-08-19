@@ -1,0 +1,16 @@
+{"at_ns":1,"event":"observation_captured","frame_id":"20260819-005653-726107572-570151"}
+{"at_ns":2,"event":"target_locked","object_id":"yellow_block"}
+{"at_ns":3,"event":"geometry_ready"}
+{"at_ns":4,"event":"grasp_candidates_generated","feasible_count":2}
+{"at_ns":5,"event":"grasp_candidate_validated","rank":0}
+{"at_ns":6,"event":"motion_completed","action":"approach"}
+{"at_ns":7,"event":"servo_converged"}
+{"at_ns":8,"event":"motion_completed","action":"grasp"}
+{"at_ns":9,"event":"motion_completed","action":"lift"}
+{"at_ns":10,"event":"grasp_verified","object_held":true,"confidence":0.91}
+{"at_ns":11,"event":"destination_locked","object_id":"green_tray"}
+{"at_ns":12,"event":"place_geometry_ready"}
+{"at_ns":13,"event":"place_candidates_generated","feasible_count":1}
+{"at_ns":14,"event":"place_candidate_validated","rank":0}
+{"at_ns":15,"event":"motion_completed","action":"place"}
+{"at_ns":16,"event":"place_verified","predicates_satisfied":true,"confidence":0.88}

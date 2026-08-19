@@ -1,9 +1,9 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Health {
     Healthy,
@@ -17,7 +17,7 @@ impl Health {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct D405Status {
     pub present: bool,
     pub serial: Option<String>,
@@ -26,7 +26,7 @@ pub struct D405Status {
     pub reason: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SerialCandidate {
     pub usb_path: String,
     pub vendor_product: String,
@@ -36,7 +36,7 @@ pub struct SerialCandidate {
     pub reason: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SensorStatus {
     pub d405: D405Status,
     pub tactile_candidates: Vec<SerialCandidate>,

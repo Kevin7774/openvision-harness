@@ -10,8 +10,8 @@ perception and kinematics that decide where to reach, the thin Python layer that
 actually commands the arms, and the evidence ledger that says whether it worked.
 
 ```
-crates/xr1-vision/   Rust library + thin CLI: proposal, perception, planning,
-                     kinematics, safety and experiment journal          <- main line
+crates/xr1-vision/   Rust library + thin CLI: task executive, observation,
+                     perception, planning, kinematics and safety        <- main line
 py/                  Python: the rclpy / hardware boundary              <- see AGENTS.md §language
 ros/rtc_teleop/      C++ ROS 2 nodes (source for the vendor teleop path)
 mac/                 Swift: the external-camera recorder that runs on the Mac
@@ -38,8 +38,13 @@ bin/tf-frames                     # 52 frames, 6 of them zed_*, or something is 
 cargo build --release             # -> target/release/xr1-vision
 export PATH="$PWD/target/release:$PATH"   # the commands below are that binary
 xr1-vision observe                # ZED snapshot + intrinsics + image-time TF
+xr1-vision bundle                 # one typed ZED/robot/capability observation
+xr1-vision validate-proposal --proposal examples/pick_place_proposal.json
 xr1-vision plan                   # default yellow-block semantic proposal -> grasp candidates
 xr1-vision plan --proposal examples/grasp_proposal.json
+xr1-vision plan --proposal examples/grasp_proposal.json --latest SAVED_LATEST_JSON
+xr1-vision replay --proposal examples/pick_place_proposal.json \
+  --events examples/task_events.jsonl
 xr1-vision fk J1 .. J7            # fingertip-pad FK, for hand-eye work
 xr1-vision sensor-status          # D405 / tactile capability report
 xr1-vision servo-propose --input examples/servo_request.json --state STATE_JSON
@@ -56,6 +61,7 @@ believing any single reading. Several sessions share this one machine.
 | ZED depth is trustworthy enough to localise the block | independently validated against the teleoperated grasp pose to 2.0 mm |
 | The colour mask separates the block from the green cube *and* from the orange gripper pads | measured regression tests in `crates/xr1-vision/src/perception/` |
 | A named visual-servo proposal cannot bypass the Rust step, freshness, URDF-margin, fingertip-floor or required-sensor gates | unit tests in `visual_servo.rs`, `kinematics/` and `safety.rs` |
+| Task events cannot skip observation, grounding, geometry, validation or physical verification stages | state-transition tests in `task/executive.rs` |
 | One grasp succeeded | 2026-08-18, gripper reads 149 closed on the object vs 14 closed on air, and it stayed at 148 after lifting |
 | Motion is rate-limited and clamped to the live URDF | `py/astra_arm.py`, refuses on stale `/joint_states` or a busy command channel |
 
@@ -72,6 +78,9 @@ believing any single reading. Several sessions share this one machine.
 - **The Rust visual-servo proposal and deterministic gate exist, but the live
   measure/execute/verify loop does not.** The old Python loop remains historical
   evidence in [ADR 0003](docs/decisions/0003-lost-python-pipeline.md).
+- **TaskProposal v2 and the task executive are connected for validation and
+  replay, not live autonomous execution yet.** `replay` consumes evidence; it
+  does not fabricate it or publish motion.
 
 ## Docs
 

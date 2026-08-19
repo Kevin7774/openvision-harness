@@ -3,7 +3,7 @@ mod geometry;
 mod yellow;
 
 use crate::observation::{read_state, ObservationState as State};
-use crate::proposal::VisionHarnessProposal;
+use crate::proposal::GraspPlanRequest;
 use image::io::Reader as ImageReader;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -45,9 +45,8 @@ pub struct PerceptionFrame {
 
 pub fn observe_object(
     latest_path: &Path,
-    proposal: &VisionHarnessProposal,
+    request: &GraspPlanRequest,
 ) -> Result<PerceptionFrame, String> {
-    proposal.validate()?;
     let latest: Latest = read_json(latest_path)?;
     let camera: CameraInfo = read_json(&latest.camera_info_path)?;
     let state = read_state(&latest.state_path)?;
@@ -86,7 +85,7 @@ pub fn observe_object(
         camera_frame: state.tf.source_frame.clone(),
         target_frame: state.tf.target_frame.clone(),
         object: ObjectGeometry {
-            object_id: proposal.object_id.clone(),
+            object_id: request.object_id.clone(),
             pixel_center_uv: pixel_center,
             center_base_m: center,
             axes_base: axes,

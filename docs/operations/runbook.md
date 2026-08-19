@@ -28,11 +28,17 @@ export SUDO_ASKPASS=/tmp/askpass.sh    # then: sudo -A <cmd>
 
 ```bash
 xr1-vision observe        # -> data/vista_runs/yellow-block-harness/latest.json
+xr1-vision bundle         # validate and print the unified observation contract
+xr1-vision validate-proposal --proposal examples/pick_place_proposal.json
 xr1-vision plan           # dry run; prints ranked candidates as JSON
 xr1-vision plan --proposal examples/grasp_proposal.json
+xr1-vision plan --proposal examples/grasp_proposal.json --latest SAVED_LATEST_JSON
+xr1-vision replay --proposal examples/pick_place_proposal.json \
+  --events examples/task_events.jsonl
 ```
 
-`plan` moves nothing. Before believing its numbers, **open the actual image**.
+`bundle`, `validate-proposal`, `plan` and `replay` move nothing. Before believing
+plan numbers, **open the actual image**.
 An aggregate value can only confirm a hypothesis you already got right --- one
 session read "yellow pixel count" off nine wrist frames, concluded the table was
 empty, and then scanned the wrong axis for twenty minutes.

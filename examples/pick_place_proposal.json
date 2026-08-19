@@ -1,0 +1,34 @@
+{
+  "schema_version": 2,
+  "task": "pick_place",
+  "command": "把黄色方块放到绿色托盘里面",
+  "target": {
+    "object_id": "yellow_block",
+    "description": "黄色方块"
+  },
+  "destination": {
+    "relation": "inside",
+    "reference": {
+      "object_id": "green_tray",
+      "description": "绿色托盘"
+    }
+  },
+  "grasp": {
+    "intent": "top_down",
+    "preferred_closing_axis": null
+  },
+  "constraints": {
+    "object_visible": true,
+    "avoid_table_collision": true
+  },
+  "success_predicates": [
+    {
+      "type": "target_held"
+    },
+    {
+      "type": "target_at_destination"
+    }
+  ],
+  "reasoning": "Ground the named target and destination before geometry planning.",
+  "prediction": "The block will be held after lift and detected inside the tray after release."
+}

@@ -25,12 +25,17 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image, JointState
+from std_msgs.msg import UInt32MultiArray
 from tf2_ros import Buffer, TransformException, TransformListener
 
 RGB_TOPIC = "/zed/zed_node/rgb/color/rect/image"
 CAMERA_INFO_TOPIC = "/zed/zed_node/rgb/color/rect/camera_info"
 DEPTH_TOPIC = "/zed/zed_node/depth/depth_registered"
 JOINT_TOPIC = "/joint_states"
+GRIPPER_TOPICS = {
+    "left": "/qg_robot/gripper_left_state",
+    "right": "/qg_robot/gripper_right_state",
+}
 RUN_ROOT = Path("/home/astrabot/workspace/data/vista_runs")
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MAX_CLOCK_OFFSET_NS = 2_000_000_000
@@ -61,6 +66,15 @@ class ObserveNode(Node):
             self.create_subscription(Image, DEPTH_TOPIC, self._callback("depth"), qos),
             self.create_subscription(
                 JointState, JOINT_TOPIC, self._callback("joint_states"), qos),
+            *[
+                self.create_subscription(
+                    UInt32MultiArray,
+                    topic,
+                    self._callback(f"gripper_{side}"),
+                    qos,
+                )
+                for side, topic in GRIPPER_TOPICS.items()
+            ],
         ]
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=False)
@@ -218,6 +232,24 @@ def transform_report(transform) -> dict:
     }
 
 
+def gripper_reports(node: ObserveNode) -> dict:
+    reports = {}
+    for side in GRIPPER_TOPICS:
+        name = f"gripper_{side}"
+        message = node.latest.get(name)
+        if message is None or not message.data:
+            continue
+        values = list(message.data)
+        reports[side] = {
+            "received_at_ns": node.received_at_ns[name],
+            "position_mm": int(values[0]),
+            "running": int(values[1]) if len(values) > 1 else None,
+            "temperature": int(values[2]) if len(values) > 2 else None,
+            "error": int(values[3]) if len(values) > 3 else None,
+        }
+    return reports
+
+
 def capture(run_id: str, timeout_s: float) -> dict:
     if not RUN_ID_RE.fullmatch(run_id):
         raise ValueError("run-id must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}")
@@ -299,6 +331,7 @@ def capture(run_id: str, timeout_s: float) -> dict:
                 "received_at_ns": node.received_at_ns["joint_states"],
                 "positions_rad": joint_positions(joint),
             },
+            "grippers": gripper_reports(node),
             "tf": transform_report(transform),
         }
         write_json(state_path, state)

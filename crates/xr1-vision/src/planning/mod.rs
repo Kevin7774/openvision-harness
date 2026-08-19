@@ -5,7 +5,7 @@ pub use types::{ForwardKinematicsReport, GraspCandidate, PlanReport};
 
 use crate::kinematics::{Chain, PLANNING_MIN_TIP_Z_M};
 use crate::perception::PerceptionFrame;
-use crate::proposal::VisionHarnessProposal;
+use crate::proposal::TaskProposal;
 use std::path::Path;
 use types::CurrentToolGeometry;
 
@@ -44,11 +44,12 @@ pub fn forward_kinematics_report(
 }
 
 pub fn plan(
-    proposal: VisionHarnessProposal,
+    proposal: TaskProposal,
     frame: PerceptionFrame,
     urdf_path: &Path,
 ) -> Result<PlanReport, String> {
     proposal.validate()?;
+    let request = proposal.grasp_request()?;
     let chain = Chain::from_urdf(urdf_path, "right_tcp_link")?;
     let names = chain.names();
     let current = names
@@ -75,7 +76,7 @@ pub fn plan(
         &names,
         &current,
         &object,
-        proposal.preferred_closing_axis,
+        request.preferred_closing_axis,
     )?;
 
     Ok(PlanReport {
