@@ -1,0 +1,37 @@
+{
+  "robot_id": "xr1-thor-reference",
+  "bindings": [
+    {
+      "kind": "d405_extrinsics",
+      "robot_id": "xr1-thor-reference",
+      "station_id": "astrabot-bench",
+      "urdf_hash": "REPLACE_WITH_sha256_of_astrabot_xr1_evt2_arm_description.urdf",
+      "required_serials": [["d405", "262422270599"]],
+      "measured_at_ns": 0,
+      "valid_for_ns": 604800000000000,
+      "pose_range_min_m": [0.2, -0.3, 0.70],
+      "pose_range_max_m": [0.6, 0.3, 1.00],
+      "sample_count": 0,
+      "error_metric": 0.0,
+      "payload": {
+        "note": "PLACEHOLDER. measured_at_ns=0 and sample_count=0 make this read as Insufficient/Stale on purpose — an example must never gate real motion. `harness commission` overwrites it with a fresh, sample-backed fit."
+      }
+    },
+    {
+      "kind": "tool",
+      "robot_id": "xr1-thor-reference",
+      "station_id": "astrabot-bench",
+      "urdf_hash": "REPLACE_WITH_sha256_of_astrabot_xr1_evt2_arm_description.urdf",
+      "required_serials": [["tool", "d60f7389ced5ef118820724b49d2c684"]],
+      "measured_at_ns": 0,
+      "valid_for_ns": 604800000000000,
+      "pose_range_min_m": [0.2, -0.3, 0.70],
+      "pose_range_max_m": [0.6, 0.3, 1.00],
+      "sample_count": 0,
+      "error_metric": 0.0,
+      "payload": {
+        "note": "PLACEHOLDER. `tool` serial is the right G2 gripper's stable ID_SERIAL_SHORT (/dev/ttyUSB0, CP2102N). Overwritten at commissioning."
+      }
+    }
+  ]
+}

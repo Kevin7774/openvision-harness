@@ -1,0 +1,14 @@
+{
+  "model": "xr1",
+  "robot_id": "xr1-thor-reference",
+  "tool": {
+    "tip_center_m": [-0.0225, 0.0, 0.0485],
+    "fixed_pad_inner_m": [0.0015, 0.0, 0.0485],
+    "moving_pad_inner_open_m": [-0.0450, 0.0, 0.0485],
+    "open_jaw_gap_m": 0.0465
+  },
+  "planning": {
+    "min_tip_z_m": 0.785,
+    "min_limit_margin_rad": 0.05
+  }
+}

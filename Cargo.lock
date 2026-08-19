@@ -82,6 +82,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "image"
 version = "0.24.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -358,6 +366,7 @@ dependencies = [
 name = "xr1-vision"
 version = "0.1.0"
 dependencies = [
+ "harness-contracts",
  "image",
  "nalgebra",
  "roxmltree",

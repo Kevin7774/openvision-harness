@@ -1,3 +1,8 @@
+// Step 1 finding #2: these are measured facts about one robot at one
+// workstation, not software defaults. They now have a home in
+// `harness_contracts::RobotProfile`. The constants remain the compiled default
+// so no behaviour changes today, and `profile_equivalence` below asserts the two
+// can never silently diverge — edit one without the other and the test fails.
 pub const TIP_CENTER_M: [f64; 3] = [-0.0225, 0.0, 0.0485];
 pub(super) const FIXED_PAD_INNER_M: [f64; 3] = [0.0015, 0.0, 0.0485];
 pub(super) const MOVING_PAD_INNER_OPEN_M: [f64; 3] = [-0.0450, 0.0, 0.0485];
@@ -38,4 +43,27 @@ pub struct MotionEnvelope {
     pub min_joint_limit_margin_rad: f64,
     pub min_tip_z_m: f64,
     pub joint_limits_ok: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use harness_contracts::RobotProfile;
+
+    /// The reference profile must reproduce the compiled constants exactly.
+    /// Migrating the core to read from a profile is therefore a no-op refactor,
+    /// and this test is the tripwire that keeps the two representations honest.
+    #[test]
+    fn profile_equivalence() {
+        let profile = RobotProfile::xr1_thor_reference();
+        assert_eq!(profile.tool.tip_center_m, TIP_CENTER_M);
+        assert_eq!(profile.tool.fixed_pad_inner_m, FIXED_PAD_INNER_M);
+        assert_eq!(profile.tool.moving_pad_inner_open_m, MOVING_PAD_INNER_OPEN_M);
+        assert_eq!(profile.tool.open_jaw_gap_m, OPEN_JAW_GAP_M);
+        assert_eq!(profile.planning.min_tip_z_m, PLANNING_MIN_TIP_Z_M);
+        assert_eq!(
+            profile.planning.min_limit_margin_rad,
+            PLANNING_MIN_LIMIT_MARGIN_RAD
+        );
+    }
 }

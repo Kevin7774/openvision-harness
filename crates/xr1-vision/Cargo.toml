@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Perception, kinematics and experiment journal for the XR1 grasping stack"
 
 [dependencies]
+harness-contracts = { path = "../harness-contracts" }
 image = { version = "0.24.9", default-features = false, features = ["png"] }
 nalgebra = "0.32"
 roxmltree = "0.19"

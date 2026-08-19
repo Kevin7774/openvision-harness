@@ -1,0 +1,13 @@
+[package]
+name = "harness-contracts"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Hardware-independent port traits and per-robot profile/calibration contracts for the vision harness"
+
+# This crate is the lower layer: it defines the boundaries a robot platform must
+# implement, plus the data that makes one physical robot distinguishable from
+# another. It must NOT depend on xr1-vision or any hardware crate.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
