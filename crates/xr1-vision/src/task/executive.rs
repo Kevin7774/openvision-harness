@@ -1,14 +1,29 @@
 use super::types::{MotionAction, TaskEvent, TaskEventRecord, TaskSnapshot, TaskStage};
 use crate::proposal::{Task, TaskProposal};
+use crate::taskpack::TaskPackRegistry;
+use harness_contracts::TaskDescriptor;
 
 pub struct TaskExecutive {
     snapshot: TaskSnapshot,
+    registry: TaskPackRegistry,
 }
 
 impl TaskExecutive {
+    /// Create an executive backed by the shipped task packs.
     pub fn new(proposal: TaskProposal) -> Result<Self, String> {
+        Self::new_with_registry(proposal, TaskPackRegistry::with_default_packs())
+    }
+
+    /// Create an executive backed by a specific registry. The executive grounds
+    /// a `TargetLocked` object against this registry, so an object no pack can
+    /// handle is rejected at lock time rather than discovered later in geometry.
+    pub fn new_with_registry(
+        proposal: TaskProposal,
+        registry: TaskPackRegistry,
+    ) -> Result<Self, String> {
         proposal.validate()?;
         Ok(Self {
+            registry,
             snapshot: TaskSnapshot {
                 schema_version: 1,
                 proposal,
@@ -75,6 +90,22 @@ impl TaskExecutive {
                 if object_id != expected {
                     return Err(format!(
                         "locked target {object_id:?} does not match proposal {expected:?}"
+                    ));
+                }
+                // Grounding now goes through the task-pack registry, not a
+                // hardcoded object name. A target no pack can handle is rejected
+                // here rather than surfacing later as a geometry failure.
+                let descriptor = TaskDescriptor {
+                    task: match self.snapshot.proposal.task {
+                        Task::Grasp => "grasp".into(),
+                        Task::PickPlace => "pick_place".into(),
+                    },
+                    object_id: Some(object_id.clone()),
+                    description: self.snapshot.proposal.target.description.clone(),
+                };
+                if !self.registry.can_ground(&descriptor) {
+                    return Err(format!(
+                        "no task pack can ground locked target {object_id:?}"
                     ));
                 }
                 self.snapshot.target_object_id = Some(object_id.clone());

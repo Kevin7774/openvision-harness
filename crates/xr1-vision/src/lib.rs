@@ -12,4 +12,5 @@ pub mod runtime;
 pub mod safety;
 pub mod servo_loop;
 pub mod task;
+pub mod taskpack;
 pub mod visual_servo;

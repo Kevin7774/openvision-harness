@@ -372,6 +372,15 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
+ "yellow-block-pick-place",
+]
+
+[[package]]
+name = "yellow-block-pick-place"
+version = "0.1.0"
+dependencies = [
+ "harness-contracts",
+ "image",
 ]
 
 [[package]]

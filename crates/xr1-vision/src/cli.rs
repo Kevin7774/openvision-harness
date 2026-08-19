@@ -52,6 +52,14 @@ where
             journal.print_status();
             Ok(())
         }
+        Some("packs") => {
+            let registry = crate::taskpack::TaskPackRegistry::with_default_packs();
+            println!(
+                "{}",
+                serde_json::to_string(&registry.skill_ids()).map_err(|e| e.to_string())?
+            );
+            Ok(())
+        }
         Some("sensor-status") => hardware::print_status(),
         Some("d405-observe") => d405_observe(&runtime, args.collect()),
         Some("tactile-observe") => tactile_observe(&runtime, args.collect()),
@@ -88,6 +96,7 @@ fn print_help() {
     println!("  grip --side right|left --state open|close");
     println!("  end --status SUCCESS|FAILED");
     println!("  status");
+    println!("  packs                   # registered task packs able to ground objects");
     println!("  sensor-status           # read-only physical sensor capability report");
     println!("  d405-observe [--timeout S] # capture and validate one real near-field frame");
     println!("  tactile-observe --config FILE # capture two named pressure pads without motion");

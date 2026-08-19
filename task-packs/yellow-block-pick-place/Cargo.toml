@@ -1,0 +1,14 @@
+[package]
+name = "yellow-block-pick-place"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "First task pack: the measured yellow-block detector and its pick/place skill, moved out of the harness core"
+
+# Step 1 finding #3: the yellow detector, yellow-block semantics, and the
+# object_id gate were welded into the core. They belong in a task pack. This is
+# that pack. It owns the measured colour thresholds and implements the TaskSkill
+# port so the executive can dispatch to it without a hardcoded match arm.
+[dependencies]
+harness-contracts = { path = "../../crates/harness-contracts" }
+image = { version = "0.24.9", default-features = false, features = ["png"] }

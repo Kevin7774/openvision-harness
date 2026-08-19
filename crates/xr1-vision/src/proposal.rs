@@ -200,14 +200,35 @@ impl TaskProposal {
         Ok(())
     }
 
+    /// Ground this proposal against the shipped task-pack registry. Kept as the
+    /// callers' entry point; delegates to [`Self::grasp_request_with`] so the
+    /// set of supported objects lives in the packs, not in this file.
     pub fn grasp_request(&self) -> Result<GraspPlanRequest, String> {
+        self.grasp_request_with(&crate::taskpack::TaskPackRegistry::with_default_packs())
+    }
+
+    /// Ground this proposal against a specific registry. Step 1 finding #3: the
+    /// old body hardcoded `object_id != "yellow_block"`. Now a task pack must
+    /// claim the object, so adding an object is a new pack, not an edit here.
+    pub fn grasp_request_with(
+        &self,
+        registry: &crate::taskpack::TaskPackRegistry,
+    ) -> Result<GraspPlanRequest, String> {
         self.validate()?;
         let object_id = self.target.object_id.clone().ok_or_else(|| {
             "target must be grounded to object_id before geometry planning".to_string()
         })?;
-        if object_id != "yellow_block" {
+        let descriptor = harness_contracts::TaskDescriptor {
+            task: match self.task {
+                Task::Grasp => "grasp".into(),
+                Task::PickPlace => "pick_place".into(),
+            },
+            object_id: Some(object_id.clone()),
+            description: self.target.description.clone(),
+        };
+        if !registry.can_ground(&descriptor) {
             return Err(format!(
-                "object_id {object_id:?} is not supported by the current measured detector"
+                "no task pack can ground object_id {object_id:?} for this task"
             ));
         }
         Ok(GraspPlanRequest {
@@ -321,6 +342,44 @@ mod tests {
         proposal.target.object_id = None;
         assert!(proposal.validate().is_ok());
         assert!(proposal.grasp_request().is_err());
+    }
+
+    #[test]
+    fn an_object_no_pack_handles_is_rejected_at_grounding() {
+        let mut proposal = TaskProposal::yellow_block_grasp();
+        proposal.target.object_id = Some("blue_cup".into());
+        // Validates as a well-formed proposal, but no shipped pack grounds it.
+        assert!(proposal.validate().is_ok());
+        assert!(proposal.grasp_request().is_err());
+    }
+
+    #[test]
+    fn a_registered_pack_grounds_its_object_without_a_core_edit() {
+        use crate::taskpack::TaskPackRegistry;
+        use harness_contracts::{TaskDescriptor, TaskSkill};
+
+        #[derive(Clone, Copy)]
+        struct BlueCupPack;
+        impl TaskSkill for BlueCupPack {
+            type Error = std::convert::Infallible;
+            fn skill_id(&self) -> &str {
+                "blue_cup.pick_place"
+            }
+            fn can_handle(&self, task: &TaskDescriptor) -> bool {
+                task.object_id.as_deref() == Some("blue_cup")
+            }
+        }
+
+        let mut registry = TaskPackRegistry::with_default_packs();
+        registry.register(BlueCupPack);
+
+        let mut proposal = TaskProposal::yellow_block_grasp();
+        proposal.target.object_id = Some("blue_cup".into());
+        // The same proposal that fails against the default registry succeeds once
+        // a pack claims the object — and no line of this crate's grounding logic
+        // changed to make that happen.
+        assert!(proposal.grasp_request().is_err());
+        assert!(proposal.grasp_request_with(&registry).is_ok());
     }
 
     #[test]
