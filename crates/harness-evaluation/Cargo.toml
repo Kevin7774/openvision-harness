@@ -1,0 +1,16 @@
+[package]
+name = "harness-evaluation"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Episode ledger, layered judge, golden set and promotion lifecycle for the self-improving loop"
+
+# Step 1 finding #5: self-evolution was a design concept with no code. This crate
+# implements the parts of ADR 0005 that are decidable in software: the episode
+# standard, the layered judge with abstention, the golden set, the promotion gate
+# and the shadow/canary/rollback lifecycle. It does NOT train models -- see the
+# crate docs for the boundary.
+[dependencies]
+harness-contracts = { path = "../harness-contracts" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

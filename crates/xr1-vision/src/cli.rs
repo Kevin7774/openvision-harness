@@ -63,6 +63,7 @@ where
             );
             Ok(())
         }
+        Some("judge-ceiling") => judge_ceiling(args.collect()),
         Some("sensor-status") => hardware::print_status(),
         Some("d405-observe") => d405_observe(&runtime, args.collect()),
         Some("tactile-observe") => tactile_observe(&runtime, args.collect()),
@@ -81,6 +82,41 @@ where
         }
         Some(command) => Err(format!("unknown command {command:?}; run xr1-vision help")),
     }
+}
+
+/// ADR 0005's arithmetic, made runnable: at success rate `p`, a judge with
+/// systematic bias `b` stops adding information after `n* = p(1-p)/b²` episodes.
+/// An operator deciding "should we collect more episodes?" needs this number,
+/// because past it the answer is "no, improve the judge".
+fn judge_ceiling(args: Vec<String>) -> Result<(), String> {
+    validate_command_args(Some("judge-ceiling"), &args, &["--rate", "--bias"], &[])?;
+    let parse = |name: &str| -> Result<f64, String> {
+        option(&args, name)?
+            .parse::<f64>()
+            .map_err(|_| format!("{name} must be a number"))
+    };
+    let rate = parse("--rate")?;
+    let bias = parse("--bias")?;
+    let ceiling = harness_evaluation::information_ceiling(rate, bias).ok_or_else(|| {
+        "--rate must be within [0, 1] and --bias must be finite and greater than zero".to_string()
+    })?;
+    let standard_error_at_ceiling =
+        harness_evaluation::standard_error(rate, ceiling.ceil() as usize).unwrap_or(f64::NAN);
+    println!(
+        "{}",
+        serde_json::to_string(&serde_json::json!({
+            "ok": true,
+            "mode": "judge_information_ceiling",
+            "success_rate": rate,
+            "judge_bias": bias,
+            "episode_ceiling": ceiling,
+            "standard_error_at_ceiling": standard_error_at_ceiling,
+            "note": "past episode_ceiling, sampling noise is below the judge's systematic bias, so \
+                     further episodes cannot resolve whether anything improved"
+        }))
+        .map_err(|error| error.to_string())?
+    );
+    Ok(())
 }
 
 /// The top-level CLI reports unknown arguments without a subcommand label.
@@ -110,6 +146,9 @@ fn print_help() {
     println!("  end --status SUCCESS|FAILED");
     println!("  status");
     println!("  packs                   # registered task packs able to ground objects");
+    println!(
+        "  judge-ceiling --rate P --bias B # episodes past which a judge of bias B adds nothing"
+    );
     println!("  sensor-status           # read-only physical sensor capability report");
     println!("  d405-observe [--timeout S] # capture and validate one real near-field frame");
     println!("  tactile-observe --config FILE # capture two named pressure pads without motion");

@@ -7,6 +7,7 @@ description = "Perception, kinematics and experiment journal for the XR1 graspin
 
 [dependencies]
 harness-contracts = { path = "../harness-contracts" }
+harness-evaluation = { path = "../harness-evaluation" }
 yellow-block-pick-place = { path = "../../task-packs/yellow-block-pick-place" }
 image = { version = "0.24.9", default-features = false, features = ["png"] }
 nalgebra = "0.32"
