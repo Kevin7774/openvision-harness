@@ -97,7 +97,7 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 | `l4tbr0` | DOWN | 192.168.55.1/24 | Jetson USB-device 模式的自带桥，未用 |
 | `docker0` | DOWN | 172.17.0.1/16 | 未用 |
 
-> 📌 **两台机器的 IP / 账号 / 密码 / 摄像头清单在 [`/home/astrabot/AGENTS.md`](../../../AGENTS.md)**
+> 📌 **两台机器的 IP / 账号 / 密码 / 摄像头清单在仓库根目录的 [`AGENTS.md`](../../AGENTS.md)**
 > （含免密 SSH 与 `ROS_DOMAIN_ID=12` 互通说明）。本文档只覆盖机器人这一侧的硬件。
 
 `/etc/hosts` 里**没有** `tegra-ubuntu` 条目 —— 所以每次 `sudo` 都会先甩一句

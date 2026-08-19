@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-19T13:19:56+08:00",
+  "host": "tegra-ubuntu",
+  "user": "astrabot",
+  "cwd": "/home/astrabot/workspace",
+  "observation": {
+    "existing_ssh_shell_alive": true,
+    "workspace_traversable": false,
+    "commands": {
+      "/bin/ls": "Permission denied",
+      "/usr/bin/id": "Permission denied",
+      "/usr/bin/python3": "Permission denied",
+      "/usr/bin/systemctl": "Permission denied"
+    },
+    "new_ssh_login": "authentication succeeds but chdir and /bin/bash fail with Permission denied"
+  },
+  "impact": "Robot-side repository sync, build, ROS observation and hardware validation cannot run from the astrabot account.",
+  "required_recovery": "Use a local console or an existing administrator session to inspect directory modes, ACLs and mounts, then restore normal traversal permissions on the exact affected directories.",
+  "prohibited_recovery": "Do not recursively chmod the filesystem and do not reboot while the existing shell is the only live diagnostic session."
+}

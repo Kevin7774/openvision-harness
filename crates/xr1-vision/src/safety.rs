@@ -32,6 +32,16 @@ pub struct ServoSafetyReport {
     pub limitations: Vec<String>,
 }
 
+pub fn sensor_requirements_met(requirements: &SensorRequirements, sensors: &SensorStatus) -> bool {
+    let tactile_healthy = sensors
+        .tactile_candidates
+        .iter()
+        .any(|candidate| candidate.health.is_healthy());
+    (!requirements.d405 || sensors.d405.health.is_healthy())
+        && (!requirements.tactile || tactile_healthy)
+        && !requirements.force_feedback
+}
+
 pub fn evaluate_servo(
     chain: &Chain,
     state: &ObservationState,
@@ -103,6 +113,12 @@ pub fn evaluate_servo(
     );
     push_check(
         &mut checks,
+        "all_required_sensor_capabilities",
+        sensor_requirements_met(requirements, sensors),
+        "aggregate of D405, tactile and force-feedback requirements".into(),
+    );
+    push_check(
+        &mut checks,
         "observation_freshness",
         observation_age_ms <= MAX_PROPOSAL_OBSERVATION_AGE_MS,
         format!("age_ms={observation_age_ms:.3} ceiling_ms={MAX_PROPOSAL_OBSERVATION_AGE_MS:.0}"),
@@ -165,6 +181,15 @@ pub fn evaluate_servo(
         format!(
             "required={} healthy_candidate={tactile_healthy}",
             requirements.tactile
+        ),
+    );
+    push_check(
+        &mut checks,
+        "required_force_feedback_capability",
+        !requirements.force_feedback,
+        format!(
+            "required={} available=false; /joint_states effort is non-finite and G2 force_cmd is open loop",
+            requirements.force_feedback
         ),
     );
 
@@ -282,6 +307,7 @@ mod tests {
                 present: true,
                 serial: Some("test".into()),
                 usb_speed_mbps: Some(480),
+                sustained_stream_verified: d405 == Health::Healthy,
                 health: d405,
                 reason: "test".into(),
             },
@@ -328,12 +354,36 @@ mod tests {
             &SensorRequirements {
                 d405: true,
                 tactile: false,
+                force_feedback: false,
             },
             &sensors(Health::Degraded),
             1_100_000_000,
         );
         assert!(report.is_ok());
         assert!(!report.ok().map(|value| value.approved).unwrap_or(true));
+    }
+
+    #[test]
+    fn required_force_feedback_always_fails_closed_on_this_robot() {
+        let chain = Chain::from_urdf_xml(THREE_JOINT_URDF, "right_tcp_link").unwrap();
+        let report = evaluate_servo(
+            &chain,
+            &state(),
+            "frame-1",
+            &proposal(),
+            &SensorRequirements {
+                force_feedback: true,
+                ..SensorRequirements::default()
+            },
+            &sensors(Health::Healthy),
+            1_100_000_000,
+        )
+        .unwrap();
+        assert!(!report.approved);
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| { check.name == "required_force_feedback_capability" && !check.passed }));
     }
 
     #[test]

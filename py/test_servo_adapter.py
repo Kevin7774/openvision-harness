@@ -59,6 +59,16 @@ class FakeRobot:
         self.closed = True
 
 
+class ShortMoveRobot(FakeRobot):
+    def move(self, target, speed, dry_run):
+        self.move_args = (target, speed, dry_run)
+        if not dry_run:
+            self.state.update(
+                {joint: value * 0.5 for joint, value in target.items()}
+            )
+        return dict(self.state)
+
+
 class ServoAdapterTest(unittest.TestCase):
     def setUp(self):
         FakeRobot.instances.clear()
@@ -79,7 +89,17 @@ class ServoAdapterTest(unittest.TestCase):
         )
         self.assertTrue(report["executed"])
         self.assertTrue(report["requires_reobservation"])
+        self.assertTrue(report["motion_completed"])
         self.assertAlmostEqual(report["achieved_joint_delta_rad"][CONTROLLED[2]], 0.03)
+
+    def test_short_physical_move_still_requires_reobservation_and_stops(self):
+        report = servo_adapter.execute(
+            envelope(), True, robot_factory=ShortMoveRobot, now_ns=1_500_000_000
+        )
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["motion_completed"])
+        self.assertTrue(report["requires_reobservation"])
+        self.assertGreater(report["max_joint_arrival_error_rad"], 0.01)
 
     def test_stale_or_unapproved_proposal_is_refused(self):
         with self.assertRaisesRegex(servo_adapter.ServoRefused, "stale"):

@@ -43,6 +43,27 @@ An aggregate value can only confirm a hypothesis you already got right --- one
 session read "yellow pixel count" off nine wrist frames, concluded the table was
 empty, and then scanned the wrong axis for twenty minutes.
 
+### Bounded near-target alignment
+
+With a 3×3 calibration measured at the current pose family:
+
+```bash
+xr1-vision servo-loop --calibration /tmp/servo-calibration.json
+xr1-vision servo-loop --calibration /tmp/servo-calibration.json --go
+```
+
+The first command observes live state and dry-runs the next approved microstep.
+The second explicitly permits motion. Each iteration is one new ZED observation,
+one Rust-gated microstep, another distinct observation, then predicted/actual
+reconciliation. Defaults are six steps and 180 s; concurrent loops are refused.
+It uses running publishers as-is and never starts, stops or restarts services.
+
+Do not add `--require-d405`, `--require-tactile` or
+`--require-force-feedback` to make a result look safer: on the current hardware
+they correctly refuse execution. They become usable only after their actual
+stream/protocol is measured healthy. Convergence authorizes neither gripper
+close nor a claim of grasp success; those remain separate actions and evidence.
+
 ## 2. Run an experiment
 
 ```bash

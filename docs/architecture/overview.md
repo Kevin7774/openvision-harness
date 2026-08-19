@@ -53,6 +53,7 @@ planning does not publish to hardware.
 | `kinematics/ik.rs` | multi-seed numerical IK and duplicate-branch removal |
 | `kinematics/grasp.rs` | contact and closing-axis feasibility |
 | `visual_servo.rs` | fit a local 3×3 image Jacobian, propose one bounded step and reconcile its observed result |
+| `servo_loop.rs` | bounded observe/one-step/reobserve orchestration, session lock and append-only evidence |
 | `safety.rs` | bind a proposal to fresh evidence and apply deterministic step, URDF margin, floor-path and sensor-capability gates |
 | `observation.rs` | unified ZED artifact, joint, TF, gripper and sensor-capability bundle |
 | `hardware.rs` | read-only D405 and tactile capability discovery; no task policy |
@@ -80,6 +81,8 @@ xr1-vision servo-propose --input I --state S
                                               bounded proposal + deterministic Rust gate
 xr1-vision servo-step --proposal P [--go]  dry-run or exactly one approved microstep
 xr1-vision servo-reconcile --input I       prediction vs distinct newer observation
+xr1-vision servo-loop --calibration C [--go]
+                                              bounded observe/action/reconcile orchestration
 xr1-vision begin --purpose TEXT            open a numbered experiment
 xr1-vision note --section NAME --text TEXT  append to its report
 xr1-vision grip --side S --state open|close
@@ -96,6 +99,9 @@ the Rust checks passed. `servo-step` requires a separate `--go`, then the Python
 boundary re-checks envelope age, live joint freshness, start drift and channel
 idleness. It executes at most one microstep and requires a newer observation
 before `servo-reconcile` can authorize continued reasoning.
+`servo-loop` composes those same transactions with one process lock, a six-step
+default ceiling and an overall deadline. It uses existing ROS publishers only;
+it contains no service start, stop or restart path. Dry-run is the default.
 
 The semantic proposal and typed candidate schemas are specified in
 [`proposals.md`](./proposals.md).

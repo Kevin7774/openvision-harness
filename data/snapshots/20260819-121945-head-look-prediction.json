@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-19T12:19:45+08:00",
+  "operation": "python3 py/xr1.py look 40 0",
+  "before_frame_id": "20260819-114528-647684791-1548854",
+  "before_head_rad": {
+    "pitch": 0.0,
+    "yaw": 0.0
+  },
+  "prediction": {
+    "head_pitch_rad_range": [0.67, 0.70],
+    "head_yaw_rad_range": [-0.01, 0.01],
+    "scene": "The fresh ZED image will move down to the near-field table and both orange right-gripper pads will enter the camera view.",
+    "servo_signal": "xr1-vision servo-observe will detect both pads; if it does not, inspect FK projection or the search window instead of changing the colour threshold."
+  },
+  "scope": "One neck-only action; no arm, gripper or base command."
+}

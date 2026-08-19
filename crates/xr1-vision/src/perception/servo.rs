@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, VecDeque};
 
-const ORANGE_PAD_MIN_AREA_PX: usize = 150;
+// Frame 20260819-122807 shows the foreshortened upper pad at 125 px; the
+// largest unrelated component below it is 23 px. Keep enough margin for both.
+const ORANGE_PAD_MIN_AREA_PX: usize = 100;
 // Measured on frame 20260818-120701: the FK residual is tens of pixels, while
 // the unrelated orange fruit is more than 150 px from the predicted tool.
 const PAD_SEARCH_RADIUS_PX: f64 = 150.0;
@@ -400,5 +402,35 @@ mod tests {
         assert!(result.target_detected_pixels > 100);
         assert!((600.0..=850.0).contains(&result.observed_target_signal[0]));
         assert!((300.0..=450.0).contains(&result.observed_target_signal[1]));
+    }
+
+    #[test]
+    fn pitched_head_frame_keeps_the_foreshortened_pad() {
+        let frame = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../data/vista_runs/yellow-block-harness/observations/20260819-122807-895062316-1623112",
+        );
+        let camera: CameraInfo =
+            serde_json::from_slice(&fs::read(frame.join("camera_info.json")).unwrap()).unwrap();
+        let state = read_state(&frame.join("state.json")).unwrap();
+        let rgb = ImageReader::open(frame.join("rgb.png"))
+            .unwrap()
+            .decode()
+            .unwrap()
+            .to_rgb8();
+        let depth =
+            depth::read_npy_f32(&frame.join("depth.npy"), camera.width * camera.height).unwrap();
+        let result = extract_with_prediction(
+            &rgb,
+            &depth,
+            &camera,
+            &state,
+            BTreeMap::new(),
+            [703.0, 363.0, 0.5],
+        )
+        .unwrap();
+        assert_eq!(result.pad_blob_areas_px, [156, 125]);
+        assert!((result.physical_pad_midpoint_uv[0] - 702.8).abs() < 1.0);
+        assert!((result.physical_pad_midpoint_uv[1] - 362.6).abs() < 1.0);
+        assert_eq!(result.orange_blobs_rejected, 1);
     }
 }

@@ -14,6 +14,10 @@ MAX_ENVELOPE_AGE_S = 3.0
 MAX_START_DRIFT_RAD = 0.01
 MAX_SERVO_STEP_RAD = 0.05
 SERVO_SPEED_RAD_S = 0.10
+# Match the live-start drift bound: a larger endpoint miss means the requested
+# microstep was not physically established and the loop must stop after seeing
+# a new frame. This is stricter than astra_arm's generic 0.05 rad warning.
+MAX_ARRIVAL_ERROR_RAD = 0.01
 
 
 class ServoRefused(ValueError):
@@ -121,15 +125,23 @@ def execute(
         joint: achieved[joint] - current[joint]
         for joint in envelope["proposal"]["controlled_joints"]
     }
+    requested_delta = envelope["proposal"]["joint_delta_rad"]
+    arrival_error = max(
+        abs(achieved_delta[joint] - requested_delta[joint])
+        for joint in envelope["proposal"]["controlled_joints"]
+    )
+    motion_completed = not go or arrival_error <= MAX_ARRIVAL_ERROR_RAD
     return {
-        "ok": True,
+        "ok": motion_completed,
         "schema_version": 1,
         "mode": "visual_servo_microstep",
         "executed": go,
         "observation_frame_id": envelope["observation_frame_id"],
         "joint_start_drift_rad": drift,
-        "requested_joint_delta_rad": envelope["proposal"]["joint_delta_rad"],
+        "requested_joint_delta_rad": requested_delta,
         "achieved_joint_delta_rad": achieved_delta,
+        "max_joint_arrival_error_rad": arrival_error,
+        "motion_completed": motion_completed,
         "requires_reobservation": go,
     }
 

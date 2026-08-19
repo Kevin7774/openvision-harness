@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_WORKSPACE_ROOT: &str = "/home/astrabot/workspace";
 const DEFAULT_ARM_URDF: &str = "/opt/ros/astrabot/share/astrabot_xr1_evt2_description/urdf/astrabot_xr1_evt2_arm_description.urdf";
@@ -62,6 +63,37 @@ impl RuntimePaths {
     }
 
     pub fn run_python(&self, script: &str, args: &[&str]) -> Result<(), String> {
+        let status = self
+            .python_command(script, args)
+            .status()
+            .map_err(|error| format!("failed to start {script}: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("{script} exited with {status}"))
+        }
+    }
+
+    pub fn run_python_capture(&self, script: &str, args: &[&str]) -> Result<String, String> {
+        let output = self
+            .python_command(script, args)
+            .output()
+            .map_err(|error| format!("failed to start {script}: {error}"))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        if output.status.success() {
+            Ok(stdout)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!(
+                "{script} exited with {}: stdout={} stderr={}",
+                output.status,
+                stdout.trim(),
+                stderr.trim()
+            ))
+        }
+    }
+
+    fn python_command(&self, script: &str, args: &[&str]) -> Command {
         let script_path = self.scripts_root().join(script);
         let mut command = format!(
             "source /opt/ros/jazzy/setup.bash && source /opt/ros/astrabot/setup.bash && exec python3 {}",
@@ -71,24 +103,28 @@ impl RuntimePaths {
             command.push(' ');
             command.push_str(&shell_quote(arg));
         }
-        let status = Command::new("/bin/bash")
+        let mut process = Command::new("/bin/bash");
+        process
             .args(["-lc", &command])
             .current_dir(self.scripts_root())
             .env("ROS_DOMAIN_ID", "12")
             .env("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|error| format!("failed to start {script}: {error}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("{script} exited with {status}"))
-        }
+            .stdin(Stdio::null());
+        process
     }
 }
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+pub fn unix_time_ns() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
+        .as_nanos()
+        .try_into()
+        .map_err(|_| "system timestamp does not fit u64".to_string())
 }
 
 #[cfg(test)]

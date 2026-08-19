@@ -5,13 +5,13 @@ use crate::observation;
 use crate::perception;
 use crate::planning;
 use crate::proposal::TaskProposal;
-use crate::runtime::RuntimePaths;
+use crate::runtime::{self, RuntimePaths};
 use crate::safety;
+use crate::servo_loop;
 use crate::task::{TaskEventRecord, TaskExecutive};
 use crate::visual_servo;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const RUN_ID: &str = "yellow-block-harness";
 
@@ -57,6 +57,7 @@ where
         Some("servo-propose") => servo_propose(&runtime, args.collect()),
         Some("servo-step") => servo_step(&runtime, args.collect()),
         Some("servo-reconcile") => servo_reconcile(args.collect()),
+        Some("servo-loop") => servo_loop::run(&runtime, args.collect()),
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
             Ok(())
@@ -90,6 +91,9 @@ fn print_help() {
     );
     println!("  servo-step --proposal FILE [--go] # execute at most one approved microstep");
     println!("  servo-reconcile --input FILE # compare predicted vs observed microstep");
+    println!(
+        "  servo-loop --calibration FILE [--go] # bounded observe/step/reobserve loop; never restarts services"
+    );
 }
 
 fn servo_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
@@ -302,16 +306,11 @@ fn servo_propose(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String
         (None, None) => return Err("missing --input or --request".into()),
     };
     let state = observation::read_state(Path::new(&state_path))?;
-    let tip = servo_tip(&input.controlled_joints)?;
+    let tip = visual_servo::controlled_arm_tip(&input.controlled_joints)?;
     let chain = Chain::from_urdf(runtime.arm_urdf(), tip)?;
     let sensors = hardware::inspect()?;
     let proposal = visual_servo::propose(&input, safety::MAX_SERVO_STEP_RAD)?;
-    let generated_at_ns = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
-        .as_nanos()
-        .try_into()
-        .map_err(|_| "system timestamp does not fit u64".to_string())?;
+    let generated_at_ns = runtime::unix_time_ns()?;
     let safety_report = safety::evaluate_servo(
         &chain,
         &state,
@@ -338,20 +337,6 @@ fn servo_propose(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String
         .map_err(|error| error.to_string())?
     );
     Ok(())
-}
-
-fn servo_tip(controlled_joints: &[String]) -> Result<&'static str, String> {
-    let right = controlled_joints
-        .iter()
-        .all(|name| name.starts_with("right_arm_") && name.ends_with("_joint"));
-    let left = controlled_joints
-        .iter()
-        .all(|name| name.starts_with("left_arm_") && name.ends_with("_joint"));
-    match (right, left) {
-        (true, false) => Ok("right_tcp_link"),
-        (false, true) => Ok("left_tcp_link"),
-        _ => Err("controlled_joints must all belong to exactly one arm".into()),
-    }
 }
 
 fn option(args: &[String], name: &str) -> Result<String, String> {
@@ -384,15 +369,5 @@ mod tests {
             "b.json".into(),
         ];
         assert!(optional_option(&args, "--proposal").is_err());
-    }
-
-    #[test]
-    fn servo_joints_must_belong_to_one_arm() {
-        assert!(servo_tip(&[
-            "right_arm_2_joint".into(),
-            "left_arm_4_joint".into(),
-            "right_arm_6_joint".into(),
-        ])
-        .is_err());
     }
 }

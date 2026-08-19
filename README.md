@@ -56,6 +56,8 @@ xr1-vision servo-propose --request CALIBRATED_REQUEST_JSON --state STATE_JSON \
 xr1-vision servo-step --proposal /tmp/servo-proposal.json       # dry-run
 xr1-vision servo-step --proposal /tmp/servo-proposal.json --go  # exactly one microstep
 xr1-vision servo-reconcile --input RECONCILIATION_JSON
+xr1-vision servo-loop --calibration CALIBRATION_JSON             # fresh dry-run
+xr1-vision servo-loop --calibration CALIBRATION_JSON --go        # bounded live loop
 ```
 
 Read [`docs/operations/status.md`](docs/operations/status.md) before moving the
@@ -71,6 +73,7 @@ believing any single reading. Several sessions share this one machine.
 | A named visual-servo proposal cannot bypass the Rust step, freshness, URDF-margin, fingertip-floor or required-sensor gates | unit tests in `visual_servo.rs`, `kinematics/` and `safety.rs` |
 | The servo signal uses the two physical orange pads near FK, not the larger orange fruit | named frame `20260818-120701-385142786-132823` in the Rust perception regression |
 | A microstep must be followed by a distinct newer observation and stops on a sign flip or three reductions below 10% | reconciliation tests in `visual_servo.rs` |
+| The live loop performs at most one approved microstep between observations, has step/time/concurrency bounds, and never starts, stops or restarts a service | `servo-loop`, the Rust safety envelope and `servo_adapter.py` |
 | Task events cannot skip observation, grounding, geometry, validation or physical verification stages | state-transition tests in `task/executive.rs` |
 | One grasp succeeded | 2026-08-18, gripper reads 149 closed on the object vs 14 closed on air, and it stayed at 148 after lifting |
 | Motion is rate-limited and clamped to the live URDF | `py/astra_arm.py`, refuses on stale `/joint_states` or a busy command channel |
@@ -80,16 +83,17 @@ believing any single reading. Several sessions share this one machine.
 - **Grasping is orientation-dependent.** The one success came from a block yaw
   that put the tool-frame error across the closing axis. Nothing was fixed; a
   different yaw still fails.
-- **No force sensing.** `effort` is `.nan` on every joint, so contact can only
-  ever be inferred geometrically.
+- **No force sensing.** `effort` is `.nan` on every joint. A request that marks
+  force feedback as required now fails closed; grasp verification still uses
+  the measured G2 obstruction signal followed by lift retention.
 - **Near-field sensing is not execution-ready.** The D405 is present but on a
   degraded 480 Mbit/s path; the two tactile CH340 devices have no tty driver or
   verified frame contract.
-- **The visual-servo components are connected as explicit one-action commands,
-  but the current 3×3 Jacobian has not yet been re-measured and validated on
-  live hardware.** `servo-step --go` executes one approved microstep only;
-  capture and reconciliation remain mandatory before another step. The old
-  Python loop remains historical evidence in
+- **The bounded visual-servo orchestration is implemented, but the current 3×3
+  Jacobian has not yet been re-measured and validated on live hardware.**
+  `servo-loop` makes capture and reconciliation mandatory before another step,
+  but it cannot make an old or absent calibration valid. The old Python loop
+  remains historical evidence in
   [ADR 0003](docs/decisions/0003-lost-python-pipeline.md).
 - **TaskProposal v2 and the task executive are connected for validation and
   replay, not live autonomous execution yet.** `replay` consumes evidence; it

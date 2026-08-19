@@ -14,6 +14,8 @@ pub struct SensorRequirements {
     pub d405: bool,
     #[serde(default)]
     pub tactile: bool,
+    #[serde(default)]
+    pub force_feedback: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,7 +82,7 @@ pub struct ServoTarget {
     pub tolerance: [f64; 3],
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CalibratedServoRequest {
     pub schema_version: u32,
     pub calibration: JacobianCalibration,
@@ -92,7 +94,7 @@ pub struct CalibratedServoRequest {
     pub requires: SensorRequirements,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReconciliationInput {
     pub schema_version: u32,
     pub target: ServoTarget,
@@ -269,6 +271,34 @@ pub fn input_from_request(request: &CalibratedServoRequest) -> Result<ServoInput
         request.damping,
         request.requires.clone(),
     )
+}
+
+pub fn target_reached(target: &ServoTarget, sample: &ServoSignalSample) -> Result<bool, String> {
+    validate_target(target)?;
+    validate_sample(sample)?;
+    Ok((0..3)
+        .all(|axis| (target.signal[axis] - sample.signal[axis]).abs() <= target.tolerance[axis]))
+}
+
+pub fn calibration_pose_drift(
+    calibration: &JacobianCalibration,
+    sample: &ServoSignalSample,
+) -> Result<f64, String> {
+    validate_sample(sample)?;
+    calibration
+        .controlled_joints
+        .iter()
+        .map(|joint| {
+            let reference = calibration
+                .reference_joints_rad
+                .get(joint)
+                .copied()
+                .ok_or_else(|| format!("calibration is missing reference joint {joint}"))?;
+            Ok((sample_joint(sample, joint)? - reference).abs())
+        })
+        .try_fold(0.0_f64, |largest, drift| {
+            drift.map(|value| largest.max(value))
+        })
 }
 
 pub fn reconcile(input: &ReconciliationInput) -> Result<ServoReconciliation, String> {
@@ -492,6 +522,20 @@ fn validate_controlled_joints(controlled_joints: &[String]) -> Result<(), String
     Ok(())
 }
 
+pub fn controlled_arm_tip(controlled_joints: &[String]) -> Result<&'static str, String> {
+    let right = controlled_joints
+        .iter()
+        .all(|name| name.starts_with("right_arm_") && name.ends_with("_joint"));
+    let left = controlled_joints
+        .iter()
+        .all(|name| name.starts_with("left_arm_") && name.ends_with("_joint"));
+    match (right, left) {
+        (true, false) => Ok("right_tcp_link"),
+        (false, true) => Ok("left_tcp_link"),
+        _ => Err("controlled_joints must all belong to exactly one arm".into()),
+    }
+}
+
 fn validate_sample(sample: &ServoSignalSample) -> Result<(), String> {
     if sample.schema_version != 1 {
         return Err(format!(
@@ -693,10 +737,55 @@ mod tests {
     }
 
     #[test]
+    fn target_reached_requires_every_signal_axis_inside_tolerance() {
+        let target = ServoTarget {
+            schema_version: 1,
+            source_frame_id: "target".into(),
+            signal: [700.0, 400.0, 0.5],
+            tolerance: [5.0, 5.0, 0.005],
+        };
+        assert!(target_reached(
+            &target,
+            &sample("inside", 1, [0.0; 3], [704.9, 395.1, 0.5049])
+        )
+        .unwrap());
+        assert!(!target_reached(
+            &target,
+            &sample("outside", 2, [0.0; 3], [705.1, 400.0, 0.5])
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn calibration_pose_drift_uses_named_controlled_joints() {
+        let calibration = measure_jacobian(&calibration_input()).unwrap();
+        let current = sample("current", 10, [0.01, -0.02, 0.03], [700.0, 400.0, 0.5]);
+        assert!((calibration_pose_drift(&calibration, &current).unwrap() - 0.03).abs() < 1e-12);
+    }
+
+    #[test]
     fn duplicate_control_joint_is_rejected() {
         let mut request = input([[1.0, 0.0, 0.0]; 3], [1.0; 3]);
         request.controlled_joints[2] = request.controlled_joints[0].clone();
         assert!(propose(&request, 0.05).is_err());
+    }
+
+    #[test]
+    fn controlled_joints_must_belong_to_one_arm() {
+        assert_eq!(
+            controlled_arm_tip(&[
+                "right_arm_2_joint".into(),
+                "right_arm_4_joint".into(),
+                "right_arm_6_joint".into(),
+            ]),
+            Ok("right_tcp_link")
+        );
+        assert!(controlled_arm_tip(&[
+            "right_arm_2_joint".into(),
+            "left_arm_4_joint".into(),
+            "right_arm_6_joint".into(),
+        ])
+        .is_err());
     }
 
     #[test]

@@ -8,5 +8,6 @@ pub mod planning;
 pub mod proposal;
 pub mod runtime;
 pub mod safety;
+pub mod servo_loop;
 pub mod task;
 pub mod visual_servo;

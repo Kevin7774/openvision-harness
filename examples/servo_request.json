@@ -15,6 +15,7 @@
   "damping": 0.5,
   "requires": {
     "d405": false,
-    "tactile": false
+    "tactile": false,
+    "force_feedback": false
   }
 }

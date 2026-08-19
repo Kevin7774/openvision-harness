@@ -22,6 +22,8 @@ pub struct D405Status {
     pub present: bool,
     pub serial: Option<String>,
     pub usb_speed_mbps: Option<u32>,
+    #[serde(default)]
+    pub sustained_stream_verified: bool,
     pub health: Health,
     pub reason: String,
 }
@@ -62,7 +64,14 @@ pub fn inspect() -> Result<SensorStatus, String> {
         .map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
     let serial = enumeration.as_deref().and_then(d405_serial);
     let speed = d405_device.as_ref().and_then(|path| read_speed(path).ok());
-    let (health, reason) = classify_d405(d405_device.is_some() && serial.is_some(), speed);
+    // No D405 frame adapter or dated sustained-stream verification is connected
+    // to this process yet. Enumeration and link speed alone cannot prove frames.
+    let sustained_stream_verified = false;
+    let (health, reason) = classify_d405(
+        d405_device.is_some() && serial.is_some(),
+        speed,
+        sustained_stream_verified,
+    );
     let tactile_candidates = find_usb_devices("1a86", "7523")?
         .into_iter()
         .map(|path| serial_candidate(&path))
@@ -72,6 +81,7 @@ pub fn inspect() -> Result<SensorStatus, String> {
             present: d405_device.is_some(),
             serial,
             usb_speed_mbps: speed,
+            sustained_stream_verified,
             health,
             reason,
         },
@@ -80,7 +90,11 @@ pub fn inspect() -> Result<SensorStatus, String> {
     })
 }
 
-fn classify_d405(enumerated: bool, speed: Option<u32>) -> (Health, String) {
+fn classify_d405(
+    enumerated: bool,
+    speed: Option<u32>,
+    sustained_stream_verified: bool,
+) -> (Health, String) {
     if !enumerated {
         return (
             Health::Unavailable,
@@ -88,7 +102,8 @@ fn classify_d405(enumerated: bool, speed: Option<u32>) -> (Health, String) {
         );
     }
     match speed {
-        Some(value) if value >= 5_000 => (Health::Healthy, format!("librealsense enumerated on {value} Mbit/s USB path")),
+        Some(value) if value >= 5_000 && sustained_stream_verified => (Health::Healthy, format!("librealsense sustained stream verified on {value} Mbit/s USB path")),
+        Some(value) if value >= 5_000 => (Health::Degraded, format!("librealsense enumerated on {value} Mbit/s USB path, but sustained streaming is not verified")),
         Some(value) => (Health::Degraded, format!("librealsense enumerated, but {value} Mbit/s USB path is below USB 3.x and has disconnected under streaming load")),
         None => (Health::Degraded, "librealsense enumerated, USB link speed unknown".into()),
     }
@@ -191,10 +206,14 @@ mod tests {
     use super::*;
     #[test]
     fn usb2_d405_is_degraded_not_absent() {
-        assert_eq!(classify_d405(true, Some(480)).0, Health::Degraded);
+        assert_eq!(classify_d405(true, Some(480), false).0, Health::Degraded);
     }
     #[test]
-    fn usb3_d405_is_healthy() {
-        assert_eq!(classify_d405(true, Some(5_000)).0, Health::Healthy);
+    fn usb3_without_sustained_stream_is_still_degraded() {
+        assert_eq!(classify_d405(true, Some(5_000), false).0, Health::Degraded);
+    }
+    #[test]
+    fn usb3_with_sustained_stream_is_healthy() {
+        assert_eq!(classify_d405(true, Some(5_000), true).0, Health::Healthy);
     }
 }

@@ -1,7 +1,7 @@
 # Visual servo --- specification for the highest-value missing piece
 
-**Status: the one-action transaction is implemented; live hardware validation
-is incomplete.** The deleted Python loop remains historical context in
+**Status: the one-action transaction and bounded orchestration are implemented;
+live hardware validation is incomplete.** The deleted Python loop remains historical context in
 [ADR 0003](../decisions/0003-lost-python-pipeline.md). Rust now owns physical
 pad/target signal extraction, central-difference 3×3 fitting, conditioning,
 the 0.05 rad hard step ceiling, observation binding, freshness, URDF
@@ -33,6 +33,27 @@ xr1-vision observe
 xr1-vision servo-observe > /tmp/servo-after.json
 xr1-vision servo-reconcile --input /tmp/reconciliation.json
 ```
+
+Once a current calibration exists, the same sequence can be run without hand
+assembling each request:
+
+```bash
+xr1-vision servo-loop --calibration /tmp/servo-calibration.json
+xr1-vision servo-loop --calibration /tmp/servo-calibration.json --go
+```
+
+The first command is a fresh-observation dry run. `--go` permits at most six
+microsteps by default (`--max-steps` is bounded to 1..12), with a 180 s overall
+deadline, one process-wide lock, strict frame ordering, endpoint error checking
+and an append-only JSONL session record. It never starts, stops or restarts a
+service. If the adapter errors after motion authorization, the loop attempts a
+mandatory recovery observation, records the indeterminate step and stops.
+
+`--require-d405`, `--require-tactile` and `--require-force-feedback` turn those
+capabilities into hard gates. On the currently measured hardware all three
+requests refuse: D405 is degraded, tactile is unavailable, and real force
+feedback does not exist. Omitting them selects the verified ZED visual loop; it
+does not relabel those missing signals as healthy.
 
 The adapter re-checks envelope age, live `/joint_states`, start drift and
 command-channel idleness. A real action returns `requires_reobservation=true`.
