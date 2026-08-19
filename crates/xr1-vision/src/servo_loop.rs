@@ -5,12 +5,14 @@ use crate::perception;
 use crate::perception::ServoSignalSample;
 use crate::runtime::{self, RuntimePaths};
 use crate::safety;
+use crate::support::adapter::{json_string, parse_last_json};
+use crate::support::args::{f64_option, flag, option, optional_option, usize_option};
+use crate::support::evidence::{append_json_line, write_json};
+use crate::support::runlock::RobotActionLoopLock;
 use crate::visual_servo;
 use std::collections::HashMap;
 use std::fs;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 const RUN_ID: &str = "visual-servo-closed-loop";
@@ -140,14 +142,14 @@ struct ServoLoopSession<'a> {
     session_dir: PathBuf,
     events_path: PathBuf,
     deadline: Instant,
-    _lock: ServoLoopLock,
+    _lock: RobotActionLoopLock,
 }
 
 impl<'a> ServoLoopSession<'a> {
     fn start(runtime: &'a RuntimePaths, config: ServoLoopConfig) -> Result<Self, String> {
         let started_ns = now_ns()?;
         let session_id = format!("{started_ns}-{}", std::process::id());
-        let lock = ServoLoopLock::acquire(&session_id)?;
+        let lock = RobotActionLoopLock::acquire("visual-servo loop", &session_id)?;
         let session_dir = runtime
             .data_root()
             .join("vista_runs")
@@ -635,72 +637,6 @@ struct LoopObservation {
     report: serde_json::Value,
 }
 
-struct ServoLoopLock {
-    _file: File,
-}
-
-impl ServoLoopLock {
-    fn acquire(session_id: &str) -> Result<Self, String> {
-        let path = std::env::temp_dir().join("xr1-robot-action-loop.lock");
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        if !try_lock_exclusive(&file)? {
-            let holder = fs::read_to_string(&path).unwrap_or_else(|_| "unknown".into());
-            return Err(format!(
-                "another robot action loop is active (holder={})",
-                holder.trim()
-            ));
-        }
-        file.set_len(0)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        writeln!(file, "pid={} session_id={session_id}", std::process::id())
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        file.flush()
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        Ok(Self { _file: file })
-    }
-}
-
-#[cfg(unix)]
-fn try_lock_exclusive(file: &File) -> Result<bool, String> {
-    use std::os::fd::AsRawFd;
-
-    const LOCK_EX: i32 = 2;
-    const LOCK_NB: i32 = 4;
-    extern "C" {
-        fn flock(fd: i32, operation: i32) -> i32;
-    }
-    // SAFETY: file owns a valid descriptor for the duration of this call, and
-    // flock does not retain the pointer or access Rust-managed memory.
-    let result = unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) };
-    if result == 0 {
-        Ok(true)
-    } else {
-        let error = std::io::Error::last_os_error();
-        match error.kind() {
-            std::io::ErrorKind::WouldBlock => Ok(false),
-            _ => Err(format!("cannot lock visual-servo loop: {error}")),
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn try_lock_exclusive(_file: &File) -> Result<bool, String> {
-    Err("visual-servo loop locking is unsupported on this platform".into())
-}
-
-fn parse_last_json(output: &str, source: &str) -> Result<serde_json::Value, String> {
-    output
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .ok_or_else(|| format!("{source} produced no JSON report: {}", output.trim()))
-}
 
 fn validate_adapter_report(
     report: serde_json::Value,
@@ -734,12 +670,6 @@ fn validate_adapter_report(
     Ok(report)
 }
 
-fn json_string<'a>(value: &'a serde_json::Value, name: &str) -> Result<&'a str, String> {
-    value
-        .get(name)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| format!("JSON report is missing string field {name}"))
-}
 
 fn validate_observation_report(report: &serde_json::Value, source: &str) -> Result<(), String> {
     if report.get("ok") != Some(&serde_json::Value::Bool(true)) {
@@ -788,109 +718,16 @@ fn validate_d405_artifacts(
     Ok(())
 }
 
+
+/// This loop's label for unknown-argument errors lives in exactly one place.
 fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> Result<(), String> {
-    let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
-        if flags.contains(&argument) {
-            index += 1;
-        } else if options.contains(&argument) {
-            let Some(value) = args.get(index + 1) else {
-                return Err(format!("missing value after {argument}"));
-            };
-            if value.starts_with("--") {
-                return Err(format!("missing value after {argument}"));
-            }
-            index += 2;
-        } else {
-            return Err(format!("unsupported servo-loop argument {argument:?}"));
-        }
-    }
-    Ok(())
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
-    fs::write(path, bytes).map_err(|error| format!("{}: {error}", path.display()))
-}
-
-fn append_json_line(path: &Path, value: &serde_json::Value) -> Result<(), String> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|error| format!("{}: {error}", path.display()))?;
-    serde_json::to_writer(&mut file, value).map_err(|error| error.to_string())?;
-    file.write_all(b"\n")
-        .map_err(|error| format!("{}: {error}", path.display()))?;
-    file.flush()
-        .map_err(|error| format!("{}: {error}", path.display()))?;
-    file.sync_data()
-        .map_err(|error| format!("{}: {error}", path.display()))
-}
-
-fn option(args: &[String], name: &str) -> Result<String, String> {
-    optional_option(args, name)?.ok_or_else(|| format!("missing {name}"))
-}
-
-fn optional_option(args: &[String], name: &str) -> Result<Option<String>, String> {
-    let mut values = args.windows(2).filter(|pair| pair[0] == name);
-    let value = values.next().map(|pair| pair[1].clone());
-    if values.next().is_some() {
-        return Err(format!("{name} may only be supplied once"));
-    }
-    Ok(value)
-}
-
-fn usize_option(
-    args: &[String],
-    name: &str,
-    default: usize,
-    minimum: usize,
-    maximum: usize,
-) -> Result<usize, String> {
-    let value = optional_option(args, name)?
-        .map(|raw| {
-            raw.parse::<usize>()
-                .map_err(|_| format!("{name} must be an integer"))
-        })
-        .transpose()?
-        .unwrap_or(default);
-    if !(minimum..=maximum).contains(&value) {
-        return Err(format!("{name} must be within [{minimum}, {maximum}]"));
-    }
-    Ok(value)
-}
-
-fn f64_option(
-    args: &[String],
-    name: &str,
-    default: f64,
-    minimum: f64,
-    maximum: f64,
-) -> Result<f64, String> {
-    let value = optional_option(args, name)?
-        .map(|raw| {
-            raw.parse::<f64>()
-                .map_err(|_| format!("{name} must be a number"))
-        })
-        .transpose()?
-        .unwrap_or(default);
-    if !value.is_finite() || !(minimum..=maximum).contains(&value) {
-        return Err(format!(
-            "{name} must be finite and within [{minimum}, {maximum}]"
-        ));
-    }
-    Ok(value)
+    crate::support::args::validate_command_args(Some("servo-loop"), args, options, flags)
 }
 
 fn now_ns() -> Result<u64, String> {
     runtime::unix_time_ns()
 }
 
-fn flag(args: &[String], name: &str) -> bool {
-    args.iter().any(|argument| argument == name)
-}
 
 #[cfg(test)]
 mod tests {

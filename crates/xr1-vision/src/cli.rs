@@ -10,6 +10,9 @@ use crate::proposal::TaskProposal;
 use crate::runtime::{self, RuntimePaths};
 use crate::safety;
 use crate::servo_loop;
+use crate::support::adapter::{json_string, parse_last_json};
+use crate::support::args::{flag, option, optional_option};
+use crate::support::evidence::read_json as read_json_file;
 use crate::task::{TaskEventRecord, TaskExecutive};
 use crate::visual_servo;
 use std::fs;
@@ -80,6 +83,16 @@ where
     }
 }
 
+/// The top-level CLI reports unknown arguments without a subcommand label.
+fn validate_command_args(
+    command: Option<&str>,
+    args: &[String],
+    options: &[&str],
+    flags: &[&str],
+) -> Result<(), String> {
+    crate::support::args::validate_command_args(command, args, options, flags)
+}
+
 fn print_help() {
     println!("xr1-vision <command>");
     println!("  preflight");
@@ -120,7 +133,7 @@ fn print_help() {
 }
 
 fn d405_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
-    validate_command_args(&args, &["--timeout"], &[])?;
+    validate_command_args(None, &args, &["--timeout"], &[])?;
     let timeout = optional_option(&args, "--timeout")?.unwrap_or_else(|| "8.0".into());
     let timeout_value = timeout
         .parse::<f64>()
@@ -161,6 +174,7 @@ fn d405_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String>
 
 fn tactile_assess(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
     validate_command_args(
+        None,
         &args,
         &[
             "--mode",
@@ -217,7 +231,7 @@ fn tactile_assess(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), Strin
 }
 
 fn tactile_observe(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
-    validate_command_args(&args, &["--config"], &[])?;
+    validate_command_args(None, &args, &["--config"], &[])?;
     let report = capture_tactile(runtime, &option(&args, "--config")?)?;
     println!(
         "{}",
@@ -484,81 +498,4 @@ fn servo_propose(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String
         .map_err(|error| error.to_string())?
     );
     Ok(())
-}
-
-fn option(args: &[String], name: &str) -> Result<String, String> {
-    optional_option(args, name)?.ok_or_else(|| format!("missing {name}"))
-}
-
-fn optional_option(args: &[String], name: &str) -> Result<Option<String>, String> {
-    let mut values = args.windows(2).filter(|pair| pair[0] == name);
-    let value = values.next().map(|pair| pair[1].clone());
-    if values.next().is_some() {
-        return Err(format!("{name} may only be supplied once"));
-    }
-    Ok(value)
-}
-
-fn flag(args: &[String], name: &str) -> bool {
-    args.iter().any(|argument| argument == name)
-}
-
-fn read_json_file<T: for<'de> serde::Deserialize<'de>>(
-    path: &Path,
-    kind: &str,
-) -> Result<T, String> {
-    serde_json::from_slice(&fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?)
-        .map_err(|error| format!("invalid {kind} {}: {error}", path.display()))
-}
-
-fn parse_last_json(output: &str, source: &str) -> Result<serde_json::Value, String> {
-    output
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str(line).ok())
-        .ok_or_else(|| format!("{source} produced no JSON report: {}", output.trim()))
-}
-
-fn json_string<'a>(value: &'a serde_json::Value, name: &str) -> Result<&'a str, String> {
-    value
-        .get(name)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| format!("JSON report is missing string field {name}"))
-}
-
-fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> Result<(), String> {
-    let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
-        if flags.contains(&argument) {
-            index += 1;
-        } else if options.contains(&argument) {
-            let Some(value) = args.get(index + 1) else {
-                return Err(format!("missing value after {argument}"));
-            };
-            if value.starts_with("--") {
-                return Err(format!("missing value after {argument}"));
-            }
-            index += 2;
-        } else {
-            return Err(format!("unsupported argument {argument:?}"));
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn repeated_option_is_rejected() {
-        let args = vec![
-            "--proposal".into(),
-            "a.json".into(),
-            "--proposal".into(),
-            "b.json".into(),
-        ];
-        assert!(optional_option(&args, "--proposal").is_err());
-    }
 }

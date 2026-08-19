@@ -3,9 +3,13 @@ use crate::grasp_feedback::{
 };
 use crate::perception;
 use crate::runtime::{self, RuntimePaths};
+use crate::support::adapter::{json_string, parse_last_json, require_ok};
+use crate::support::args::{flag, option, optional_option};
+use crate::support::evidence::{canonical_file, create_new_json, read_json};
+use crate::support::runlock::RobotActionLoopLock;
 use crate::visual_servo::{self, ServoTarget};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -104,14 +108,14 @@ struct GraspLoopSession<'a> {
     session_dir: PathBuf,
     events_path: PathBuf,
     deadline: Instant,
-    _lock: GraspLoopLock,
+    _lock: RobotActionLoopLock,
 }
 
 impl<'a> GraspLoopSession<'a> {
     fn start(runtime: &'a RuntimePaths, config: GraspLoopConfig) -> Result<Self, String> {
         let started_ns = runtime::unix_time_ns()?;
         let session_id = format!("{started_ns}-{}", std::process::id());
-        let lock = GraspLoopLock::acquire(&session_id)?;
+        let lock = RobotActionLoopLock::acquire("grasp-feedback loop", &session_id)?;
         let session_dir = runtime
             .data_root()
             .join("experiments")
@@ -238,7 +242,7 @@ impl<'a> GraspLoopSession<'a> {
             let proposal_path = self
                 .session_dir
                 .join(format!("step-{step_index:02}-grip-envelope.json"));
-            write_json(&proposal_path, &envelope)?;
+            create_new_json(&proposal_path, &envelope)?;
             let adapter = match self.invoke_grip_adapter(
                 &proposal_path,
                 &current.sample_id,
@@ -619,31 +623,10 @@ struct GripAdapterReport {
     requires_reobservation: bool,
 }
 
-struct GraspLoopLock {
-    _file: File,
-}
 
-impl GraspLoopLock {
-    fn acquire(session_id: &str) -> Result<Self, String> {
-        let path = std::env::temp_dir().join("xr1-robot-action-loop.lock");
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        if !try_lock_exclusive(&file)? {
-            return Err("another robot action loop is active".into());
-        }
-        file.set_len(0)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        writeln!(file, "pid={} session_id={session_id}", std::process::id())
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        file.flush()
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        Ok(Self { _file: file })
-    }
+/// This loop's label for unknown-argument errors lives in exactly one place.
+fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> Result<(), String> {
+    crate::support::args::validate_command_args(Some("grasp-loop"), args, options, flags)
 }
 
 fn ensure_d405_fresh(received_at_ns: u64, now_ns: u64) -> Result<(), String> {
@@ -659,112 +642,6 @@ fn ensure_d405_fresh(received_at_ns: u64, now_ns: u64) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn try_lock_exclusive(file: &File) -> Result<bool, String> {
-    use std::os::fd::AsRawFd;
-
-    const LOCK_EX: i32 = 2;
-    const LOCK_NB: i32 = 4;
-    extern "C" {
-        fn flock(fd: i32, operation: i32) -> i32;
-    }
-    // SAFETY: file owns a valid descriptor for the duration of this call.
-    let result = unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) };
-    if result == 0 {
-        Ok(true)
-    } else if std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock {
-        Ok(false)
-    } else {
-        Err("cannot lock grasp-feedback loop".into())
-    }
-}
-
-#[cfg(not(unix))]
-fn try_lock_exclusive(_file: &File) -> Result<bool, String> {
-    Err("grasp-feedback loop locking is unsupported on this platform".into())
-}
-
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, kind: &str) -> Result<T, String> {
-    serde_json::from_slice(&fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?)
-        .map_err(|error| format!("invalid {kind} {}: {error}", path.display()))
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|error| format!("{}: {error}", path.display()))?;
-    serde_json::to_writer_pretty(&mut file, value).map_err(|error| error.to_string())?;
-    file.write_all(b"\n").map_err(|error| error.to_string())?;
-    file.flush().map_err(|error| error.to_string())?;
-    file.sync_data().map_err(|error| error.to_string())
-}
-
-fn parse_last_json(output: &str, source: &str) -> Result<serde_json::Value, String> {
-    output
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str(line).ok())
-        .ok_or_else(|| format!("{source} produced no JSON report: {}", output.trim()))
-}
-
-fn require_ok(report: &serde_json::Value, source: &str) -> Result<(), String> {
-    if report.get("ok") == Some(&serde_json::Value::Bool(true)) {
-        Ok(())
-    } else {
-        Err(format!("{source} failed: {report}"))
-    }
-}
-
-fn json_string<'a>(value: &'a serde_json::Value, name: &str) -> Result<&'a str, String> {
-    value
-        .get(name)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| format!("JSON report is missing string field {name}"))
-}
-
-fn canonical_file(path: &str) -> Result<PathBuf, String> {
-    fs::canonicalize(path).map_err(|error| format!("{path}: {error}"))
-}
-
-fn option(args: &[String], name: &str) -> Result<String, String> {
-    optional_option(args, name)?.ok_or_else(|| format!("missing {name}"))
-}
-
-fn optional_option(args: &[String], name: &str) -> Result<Option<String>, String> {
-    let mut values = args.windows(2).filter(|pair| pair[0] == name);
-    let value = values.next().map(|pair| pair[1].clone());
-    if values.next().is_some() {
-        return Err(format!("{name} may only be supplied once"));
-    }
-    Ok(value)
-}
-
-fn flag(args: &[String], name: &str) -> bool {
-    args.iter().any(|argument| argument == name)
-}
-
-fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> Result<(), String> {
-    let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
-        if flags.contains(&argument) {
-            index += 1;
-        } else if options.contains(&argument) {
-            let Some(value) = args.get(index + 1) else {
-                return Err(format!("missing value after {argument}"));
-            };
-            if value.starts_with("--") {
-                return Err(format!("missing value after {argument}"));
-            }
-            index += 2;
-        } else {
-            return Err(format!("unsupported grasp-loop argument {argument:?}"));
-        }
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {
