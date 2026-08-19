@@ -43,13 +43,23 @@ def candidate_score(candidate: dict) -> float:
 
 
 def select_candidate(plan: dict) -> dict:
+    moveit_required = plan.get("moveit_validation") is not None
     feasible = [
         candidate
         for candidate in plan["candidates"]
         if candidate.get("ik_feasible") and candidate.get("grasp_feasible")
+        and (
+            not moveit_required
+            or (
+                candidate.get("moveit_validated")
+                and candidate.get("self_collision_free")
+                and candidate.get("path_collision_free")
+            )
+        )
     ]
     if not feasible:
-        raise ValueError("no candidate passes both IK and grasp geometry")
+        requirement = "IK, grasp geometry and MoveIt collision" if moveit_required else "IK and grasp geometry"
+        raise ValueError(f"no candidate passes {requirement}")
     return min(feasible, key=candidate_score)
 
 

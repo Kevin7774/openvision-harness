@@ -37,6 +37,21 @@ class MotionAdapterTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "IK and grasp geometry"):
             motion_adapter.select_candidate(plan)
 
+    def test_moveit_plan_requires_collision_validated_candidate(self):
+        plan = {
+            "moveit_validation": {"backend": "moveit2_planning_scene"},
+            "candidates": [candidate(1, 1.0)],
+        }
+        with self.assertRaisesRegex(ValueError, "MoveIt collision"):
+            motion_adapter.select_candidate(plan)
+
+        plan["candidates"][0].update({
+            "moveit_validated": True,
+            "self_collision_free": True,
+            "path_collision_free": True,
+        })
+        self.assertEqual(motion_adapter.select_candidate(plan)["rank"], 1)
+
     def test_uses_observation_receive_time_for_schema_two(self):
         age = motion_adapter.plan_age_seconds(
             {"observation_received_at_ns": 10_000_000_000},

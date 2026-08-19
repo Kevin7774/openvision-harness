@@ -1,6 +1,8 @@
+mod moveit;
 mod search;
 mod types;
 
+pub use moveit::validate_with_moveit;
 pub use types::{ForwardKinematicsReport, GraspCandidate, PlanReport};
 
 use crate::kinematics::{Chain, PLANNING_MIN_TIP_Z_M};
@@ -105,6 +107,7 @@ pub fn plan(
         object_extents_m: object.extents_m,
         object,
         candidates,
+        moveit_validation: None,
     })
 }
 

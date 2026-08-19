@@ -37,6 +37,16 @@ pub struct PlanReport {
     pub object_extents_m: [f64; 3],
     pub object: ObjectGeometry,
     pub candidates: Vec<GraspCandidate>,
+    pub moveit_validation: Option<MoveItValidationSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MoveItValidationSummary {
+    pub backend: String,
+    pub model_name: String,
+    pub group_name: String,
+    pub path_samples: usize,
+    pub world_object_count: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,6 +78,9 @@ pub struct GraspCandidate {
     pub joint_limit_margin_rad: Option<f64>,
     pub collision_margin_m: Option<f64>,
     pub table_clearance_m: Option<f64>,
+    pub moveit_validated: bool,
+    pub self_collision_free: Option<bool>,
+    pub path_collision_free: Option<bool>,
     pub contact_quality: Option<f64>,
     pub score: Option<f64>,
     pub diagnostics: CandidateDiagnostics,

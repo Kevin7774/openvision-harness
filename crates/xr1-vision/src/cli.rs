@@ -64,7 +64,9 @@ fn print_help() {
     println!("xr1-vision <command>");
     println!("  preflight");
     println!("  observe");
-    println!("  plan [--proposal FILE] [--latest FILE] # semantic proposal -> grasp candidates");
+    println!(
+        "  plan [--proposal FILE] [--latest FILE] [--moveit] # proposal -> validated candidates"
+    );
     println!("  validate-proposal --proposal FILE # validate/upgrade TaskProposal to schema v2");
     println!("  bundle [--latest FILE] # unified ZED/robot/capability observation JSON");
     println!("  replay --proposal FILE --events FILE # deterministic task-state replay");
@@ -107,7 +109,15 @@ fn plan(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
         });
     let request = proposal.grasp_request()?;
     let frame = perception::observe_object(&latest, &request)?;
-    let report = planning::plan(proposal, frame, runtime.arm_urdf())?;
+    let mut report = planning::plan(proposal, frame, runtime.arm_urdf())?;
+    if flag(&args, "--moveit") {
+        planning::validate_with_moveit(
+            &mut report,
+            runtime.moveit_validator(),
+            runtime.arm_urdf(),
+            runtime.moveit_srdf(),
+        )?;
+    }
     println!(
         "{}",
         serde_json::to_string(&report).map_err(|error| error.to_string())?
@@ -258,6 +268,10 @@ fn optional_option(args: &[String], name: &str) -> Result<Option<String>, String
         return Err(format!("{name} may only be supplied once"));
     }
     Ok(value)
+}
+
+fn flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|argument| argument == name)
 }
 
 #[cfg(test)]
