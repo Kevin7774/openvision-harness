@@ -304,8 +304,12 @@ if [ "$install_mode" = "thor" ]; then
     echo "install Thor RTC/Teleop safe configuration"
     bash ./install_rtc_teleop_config.sh
 
-    echo "install Thor data collection environment"
-    ./install_data_collection.sh
+    if [[ "${ASTRABOT_SKIP_DATA_COLLECTION_INSTALL:-0}" == "1" ]]; then
+        echo "skip optional Thor data collection environment"
+    else
+        echo "install Thor data collection environment"
+        ./install_data_collection.sh
+    fi
 fi
 
 Ensure_Astrabot_Data_Dirs

@@ -191,7 +191,8 @@ astrabot start Astrabot_Data_Collection
 ROS/Fast DDS 进程存在时清理 SHM。
 
 `install.sh` 与 `reload_auto_start_script.sh` 会通过 `fastdds_shm_refresh_gate.sh` 强制执行该顺序：清理前同时
-检查进程环境、打开的 SHM fd 和内存映射；清理后以 `ROS_LOCALHOST_ONLY=1` 等待本机 `/diagnostics`。任一 Gate
+检查进程环境、打开的 SHM fd 和内存映射；只继承 ROS 环境但没有 SHM 映射的交互 shell 和远程编辑器宿主
+不算 DDS 参与者。清理后以 `ROS_LOCALHOST_ONLY=1` 等待本机 `/diagnostics`。任一 Gate
 失败都会中止刷新或触发 reload 回滚，不允许带着分裂的 Fast DDS SHM 继续启动。
 
 部署契约测试：

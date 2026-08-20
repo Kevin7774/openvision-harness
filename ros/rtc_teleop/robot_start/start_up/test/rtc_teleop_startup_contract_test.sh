@@ -127,6 +127,7 @@ fi
 Assert_Contains "$START_UP_DIR/install.sh" 'FAST_DDS_SHM_GATE_SCRIPT" clean'
 Assert_Contains "$START_UP_DIR/install.sh" 'FAST_DDS_SHM_GATE_SCRIPT" verify'
 Assert_Contains "$START_UP_DIR/install.sh" 'sudo -u "$THE_USER" bash "$FAST_DDS_SHM_GATE_SCRIPT" verify'
+Assert_Contains "$START_UP_DIR/install.sh" 'ASTRABOT_SKIP_DATA_COLLECTION_INSTALL:-0'
 Assert_Contains "$START_UP_DIR/install.sh" "Ensure_Astrabot_Data_Dirs"
 Assert_Contains "$START_UP_DIR/install.sh" "/data/astrabot/file_transfer"
 Assert_Contains "$START_UP_DIR/install.sh" "/data/astrabot/log/agent"
@@ -342,6 +343,19 @@ fi
 [[ ! -e "$test_root/fastdds-command" ]]
 
 find "$test_root/proc/124" -depth -delete
+mkdir -p "$test_root/proc/125"
+printf '%s\n' bash > "$test_root/proc/125/comm"
+printf 'Name:\tbash\nPPid:\t1\n' > "$test_root/proc/125/status"
+printf 'ROS_DISTRO=jazzy\0RMW_IMPLEMENTATION=rmw_fastrtps_cpp\0' > "$test_root/proc/125/environ"
+ASTRABOT_PROC_ROOT="$test_root/proc" \
+ASTRABOT_FASTDDS_SHM_DIR="$test_root/shm" \
+ASTRABOT_FASTDDS_COMMAND="$test_root/bin/fastdds" \
+FASTDDS_CAPTURE="$test_root/fastdds-command" \
+    bash "$FAST_DDS_SHM_GATE" clean
+Assert_Contains "$test_root/fastdds-command" "shm clean"
+
+find "$test_root/proc/125" -depth -delete
+rm -f "$test_root/fastdds-command"
 ASTRABOT_PROC_ROOT="$test_root/proc" \
 ASTRABOT_FASTDDS_SHM_DIR="$test_root/shm" \
 ASTRABOT_FASTDDS_COMMAND="$test_root/bin/fastdds" \
