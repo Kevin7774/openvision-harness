@@ -14,8 +14,8 @@ PRIORITY=1
 COMMAND_RUN_ONCE_IN_BEGIN=(
     'source /opt/ros/jazzy/setup.bash'
     'source /opt/ros/astrabot/setup.bash'
-    #'ros2 launch astrabot_hwcontrol astrabot_xr1_evt2_arm_head_forward_ros2_control.launch.py'
-    'ros2 launch astrabot_hwcontrol astrabot_xr1_evt2_arm_forward_ros2_control.launch.py'
+    'ros2 launch astrabot_hwcontrol astrabot_xr1_evt2_arm_head_forward_ros2_control.launch.py'
+    #'ros2 launch astrabot_hwcontrol astrabot_xr1_evt2_arm_forward_ros2_control.launch.py'
 )
 
 # 循环运行某些代码

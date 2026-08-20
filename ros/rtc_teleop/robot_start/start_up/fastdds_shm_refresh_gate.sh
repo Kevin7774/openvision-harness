@@ -103,6 +103,10 @@ Process_Is_Ros_Or_Fastdds() {
     fi
     case "$comm" in
         astrabot*|component_container*|fastdds|fastrtps*|ros2) return 0 ;;
+        # Login shells and remote-editor hosts commonly inherit ROS_DISTRO from
+        # /etc/bash.bashrc without creating a DDS participant. A real participant
+        # in one of these processes is still caught by Process_Holds_Fastdds_Shm.
+        bash|dash|node|sh|ssh|sshd|zsh) return 1 ;;
     esac
     if [[ -r "$process_dir/environ" ]] &&
        tr '\0' '\n' < "$process_dir/environ" |

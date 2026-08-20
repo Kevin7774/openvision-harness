@@ -509,7 +509,16 @@ class Robot:
                  "right": [j for j in ARM_JOINTS if j.startswith("right")]}
         if which not in sides:
             raise MotionRefused(f"which must be one of {sorted(sides)}")
-        return self.move({j: 0.0 for j in sides[which]}, speed=speed, dry_run=dry_run)
+        joints = sides[which]
+        state = self.joints()
+        segments = max(1, math.ceil(max(abs(state[j]) for j in joints) / MAX_STEP_RAD))
+        if dry_run or segments == 1:
+            return self.move({j: 0.0 for j in joints}, speed=speed, dry_run=dry_run)
+        waypoints = [
+            {j: state[j] * (segments - i) / segments for j in joints}
+            for i in range(1, segments + 1)
+        ]
+        return self.move_through(waypoints, speed=speed)
 
     # -------------------------------------------------------------------- head
 
