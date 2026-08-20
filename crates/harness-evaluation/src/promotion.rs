@@ -118,7 +118,10 @@ impl PromotionDecision {
 /// Evaluate a challenger against the baseline.
 pub fn evaluate(request: &PromotionRequest<'_>, criteria: &PromotionCriteria) -> PromotionDecision {
     // Validity first: an invalid comparison is not a "not yet".
-    if !request.golden.predates(request.challenger_artifact.created_at_ns) {
+    if !request
+        .golden
+        .predates(request.challenger_artifact.created_at_ns)
+    {
         return PromotionDecision::Reject {
             reason: format!(
                 "golden set {} was frozen at {} but the challenger was created at {}; a golden set \
@@ -156,7 +159,10 @@ pub fn evaluate(request: &PromotionRequest<'_>, criteria: &PromotionCriteria) ->
     }
 
     // Abstention health, before any credit is given for the score itself.
-    match request.abstain_monitor.assess(request.challenger_abstain_rate) {
+    match request
+        .abstain_monitor
+        .assess(request.challenger_abstain_rate)
+    {
         AbstainHealth::Healthy => {}
         AbstainHealth::TooHigh { rate, ceiling } => {
             return PromotionDecision::Hold {
@@ -301,7 +307,12 @@ mod tests {
 
     #[test]
     fn a_clearly_better_challenger_is_promoted() {
-        let (a, j, g, m) = (artifact(), judge_quality(), golden(), AbstainMonitor::with_baseline(0.20));
+        let (a, j, g, m) = (
+            artifact(),
+            judge_quality(),
+            golden(),
+            AbstainMonitor::with_baseline(0.20),
+        );
         let decision = evaluate(&healthy(&a, &j, &g, &m), &PromotionCriteria::default());
         assert!(decision.is_promote(), "{decision:?}");
     }
@@ -328,32 +339,51 @@ mod tests {
 
     #[test]
     fn a_margin_inside_sampling_noise_holds() {
-        let (a, j, g, m) = (artifact(), judge_quality(), golden(), AbstainMonitor::with_baseline(0.20));
+        let (a, j, g, m) = (
+            artifact(),
+            judge_quality(),
+            golden(),
+            AbstainMonitor::with_baseline(0.20),
+        );
         let mut request = healthy(&a, &j, &g, &m);
         // 3 pp apart on 200 each: above the 2 pp bias floor, below ~1.96 sigma.
         request.baseline = Arm::new(60, 200).unwrap();
         request.challenger = Arm::new(66, 200).unwrap();
         match evaluate(&request, &PromotionCriteria::default()) {
-            PromotionDecision::Hold { reason } => assert!(reason.contains("sampling noise"), "{reason}"),
+            PromotionDecision::Hold { reason } => {
+                assert!(reason.contains("sampling noise"), "{reason}")
+            }
             other => panic!("expected Hold, got {other:?}"),
         }
     }
 
     #[test]
     fn too_few_episodes_holds() {
-        let (a, j, g, m) = (artifact(), judge_quality(), golden(), AbstainMonitor::with_baseline(0.20));
+        let (a, j, g, m) = (
+            artifact(),
+            judge_quality(),
+            golden(),
+            AbstainMonitor::with_baseline(0.20),
+        );
         let mut request = healthy(&a, &j, &g, &m);
         request.baseline = Arm::new(3, 10).unwrap();
         request.challenger = Arm::new(8, 10).unwrap();
         match evaluate(&request, &PromotionCriteria::default()) {
-            PromotionDecision::Hold { reason } => assert!(reason.contains("decided episodes per arm")),
+            PromotionDecision::Hold { reason } => {
+                assert!(reason.contains("decided episodes per arm"))
+            }
             other => panic!("expected Hold, got {other:?}"),
         }
     }
 
     #[test]
     fn a_worse_challenger_is_rejected() {
-        let (a, j, g, m) = (artifact(), judge_quality(), golden(), AbstainMonitor::with_baseline(0.20));
+        let (a, j, g, m) = (
+            artifact(),
+            judge_quality(),
+            golden(),
+            AbstainMonitor::with_baseline(0.20),
+        );
         let mut request = healthy(&a, &j, &g, &m);
         request.challenger = Arm::new(200, 1_000).unwrap();
         match evaluate(&request, &PromotionCriteria::default()) {
@@ -364,7 +394,12 @@ mod tests {
 
     #[test]
     fn a_collapsed_abstention_rate_rejects_even_a_better_score() {
-        let (a, j, g, m) = (artifact(), judge_quality(), golden(), AbstainMonitor::with_baseline(0.20));
+        let (a, j, g, m) = (
+            artifact(),
+            judge_quality(),
+            golden(),
+            AbstainMonitor::with_baseline(0.20),
+        );
         let mut request = healthy(&a, &j, &g, &m);
         // Score looks great, but the judge stopped abstaining.
         request.challenger_abstain_rate = 0.01;
@@ -378,7 +413,12 @@ mod tests {
 
     #[test]
     fn failing_the_mtbh_gate_holds_even_with_a_better_success_rate() {
-        let (a, j, g, m) = (artifact(), judge_quality(), golden(), AbstainMonitor::with_baseline(0.20));
+        let (a, j, g, m) = (
+            artifact(),
+            judge_quality(),
+            golden(),
+            AbstainMonitor::with_baseline(0.20),
+        );
         let mut request = healthy(&a, &j, &g, &m);
         request.observed_mtbh_hours = 1.5;
         match evaluate(&request, &PromotionCriteria::default()) {
@@ -395,7 +435,10 @@ mod tests {
         let late = GoldenSet::new(
             "golden-late",
             5_000, // frozen long after the challenger
-            vec![GoldenItem { episode_id: "g1".into(), truth: Judgement::Success }],
+            vec![GoldenItem {
+                episode_id: "g1".into(),
+                truth: Judgement::Success,
+            }],
         )
         .unwrap();
         let a = artifact();
@@ -412,7 +455,9 @@ mod tests {
         let mut leaky = artifact();
         leaky.trained_on_episode_ids = vec!["t1".into(), "g1".into()];
         match evaluate(&healthy(&leaky, &j, &g, &m), &PromotionCriteria::default()) {
-            PromotionDecision::Reject { reason } => assert!(reason.contains("leaked into training")),
+            PromotionDecision::Reject { reason } => {
+                assert!(reason.contains("leaked into training"))
+            }
             other => panic!("expected Reject, got {other:?}"),
         }
     }

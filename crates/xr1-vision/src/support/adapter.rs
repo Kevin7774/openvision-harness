@@ -60,7 +60,10 @@ mod tests {
     fn a_truthy_non_boolean_ok_is_not_accepted() {
         for raw in ["{\"ok\":1}", "{\"ok\":\"true\"}", "{}"] {
             let report: serde_json::Value = serde_json::from_str(raw).unwrap();
-            assert!(require_ok(&report, "adapter").is_err(), "{raw} must not pass");
+            assert!(
+                require_ok(&report, "adapter").is_err(),
+                "{raw} must not pass"
+            );
         }
     }
 

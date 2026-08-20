@@ -54,7 +54,11 @@ impl GoldenScore {
 }
 
 impl GoldenSet {
-    pub fn new(golden_set_id: &str, frozen_at_ns: u64, items: Vec<GoldenItem>) -> Result<Self, String> {
+    pub fn new(
+        golden_set_id: &str,
+        frozen_at_ns: u64,
+        items: Vec<GoldenItem>,
+    ) -> Result<Self, String> {
         if items.is_empty() {
             return Err("a golden set must contain at least one item".into());
         }
@@ -74,7 +78,10 @@ impl GoldenSet {
     }
 
     /// Refuse a training set that overlaps the golden set.
-    pub fn assert_disjoint_from_training(&self, training_episode_ids: &[String]) -> Result<(), String> {
+    pub fn assert_disjoint_from_training(
+        &self,
+        training_episode_ids: &[String],
+    ) -> Result<(), String> {
         let leaked = self
             .items
             .iter()
@@ -145,10 +152,22 @@ mod tests {
             "golden-1",
             100,
             vec![
-                GoldenItem { episode_id: "g1".into(), truth: Judgement::Success },
-                GoldenItem { episode_id: "g2".into(), truth: Judgement::Success },
-                GoldenItem { episode_id: "g3".into(), truth: Judgement::Failure },
-                GoldenItem { episode_id: "g4".into(), truth: Judgement::Failure },
+                GoldenItem {
+                    episode_id: "g1".into(),
+                    truth: Judgement::Success,
+                },
+                GoldenItem {
+                    episode_id: "g2".into(),
+                    truth: Judgement::Success,
+                },
+                GoldenItem {
+                    episode_id: "g3".into(),
+                    truth: Judgement::Failure,
+                },
+                GoldenItem {
+                    episode_id: "g4".into(),
+                    truth: Judgement::Failure,
+                },
             ],
         )
         .unwrap()
@@ -160,7 +179,10 @@ mod tests {
         assert!(GoldenSet::new(
             "g",
             1,
-            vec![GoldenItem { episode_id: "x".into(), truth: Judgement::Abstain }]
+            vec![GoldenItem {
+                episode_id: "x".into(),
+                truth: Judgement::Abstain
+            }]
         )
         .is_err());
     }

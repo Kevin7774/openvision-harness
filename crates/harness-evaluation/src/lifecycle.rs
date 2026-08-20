@@ -195,7 +195,8 @@ impl Rollout {
         match decision {
             PromotionDecision::Promote { margin, .. } => {
                 self.gates_passed += 1;
-                self.history.push(format!("gate passed (margin {margin:.4})"));
+                self.history
+                    .push(format!("gate passed (margin {margin:.4})"));
             }
             PromotionDecision::Hold { reason } => self.history.push(format!("gate held: {reason}")),
             PromotionDecision::Reject { reason } => {
@@ -254,8 +255,12 @@ mod tests {
     fn the_happy_path_is_shadow_gate_canary_gate_promoted() {
         let mut rollout = rollout();
         assert_eq!(rollout.serving_policy_id(), "baseline");
-        rollout.apply(event(1, RolloutEvent::ShadowStarted)).unwrap();
-        rollout.apply(event(2, RolloutEvent::GateEvaluated(promote()))).unwrap();
+        rollout
+            .apply(event(1, RolloutEvent::ShadowStarted))
+            .unwrap();
+        rollout
+            .apply(event(2, RolloutEvent::GateEvaluated(promote())))
+            .unwrap();
         assert_eq!(rollout.stage(), RolloutStage::Shadow); // shadow does not deploy
         rollout
             .apply(event(3, RolloutEvent::CanaryStarted { share_percent: 10 }))
@@ -263,7 +268,9 @@ mod tests {
         assert_eq!(rollout.stage(), RolloutStage::Canary);
         // Still serving the incumbent while the canary runs.
         assert_eq!(rollout.serving_policy_id(), "baseline");
-        rollout.apply(event(4, RolloutEvent::GateEvaluated(promote()))).unwrap();
+        rollout
+            .apply(event(4, RolloutEvent::GateEvaluated(promote())))
+            .unwrap();
         assert_eq!(rollout.stage(), RolloutStage::Promoted);
         assert_eq!(rollout.serving_policy_id(), "v2");
     }
@@ -280,9 +287,13 @@ mod tests {
     #[test]
     fn a_canary_needs_a_passing_shadow_gate() {
         let mut rollout = rollout();
-        rollout.apply(event(1, RolloutEvent::ShadowStarted)).unwrap();
+        rollout
+            .apply(event(1, RolloutEvent::ShadowStarted))
+            .unwrap();
         // A held gate is not a pass.
-        rollout.apply(event(2, RolloutEvent::GateEvaluated(hold()))).unwrap();
+        rollout
+            .apply(event(2, RolloutEvent::GateEvaluated(hold())))
+            .unwrap();
         let error = rollout
             .apply(event(3, RolloutEvent::CanaryStarted { share_percent: 10 }))
             .unwrap_err();
@@ -292,9 +303,15 @@ mod tests {
     #[test]
     fn promotion_requires_a_canary_not_just_a_shadow_pass() {
         let mut rollout = rollout();
-        rollout.apply(event(1, RolloutEvent::ShadowStarted)).unwrap();
-        rollout.apply(event(2, RolloutEvent::GateEvaluated(promote()))).unwrap();
-        rollout.apply(event(3, RolloutEvent::GateEvaluated(promote()))).unwrap();
+        rollout
+            .apply(event(1, RolloutEvent::ShadowStarted))
+            .unwrap();
+        rollout
+            .apply(event(2, RolloutEvent::GateEvaluated(promote())))
+            .unwrap();
+        rollout
+            .apply(event(3, RolloutEvent::GateEvaluated(promote())))
+            .unwrap();
         // Two shadow passes still do not promote.
         assert_eq!(rollout.stage(), RolloutStage::Shadow);
         assert_eq!(rollout.serving_policy_id(), "baseline");
@@ -303,19 +320,28 @@ mod tests {
     #[test]
     fn a_rejecting_gate_ends_the_rollout() {
         let mut rollout = rollout();
-        rollout.apply(event(1, RolloutEvent::ShadowStarted)).unwrap();
-        rollout.apply(event(2, RolloutEvent::GateEvaluated(reject()))).unwrap();
+        rollout
+            .apply(event(1, RolloutEvent::ShadowStarted))
+            .unwrap();
+        rollout
+            .apply(event(2, RolloutEvent::GateEvaluated(reject())))
+            .unwrap();
         assert_eq!(rollout.stage(), RolloutStage::Rejected);
-        assert!(rollout.apply(event(3, RolloutEvent::ShadowStarted)).is_err());
+        assert!(rollout
+            .apply(event(3, RolloutEvent::ShadowStarted))
+            .is_err());
     }
 
     #[test]
     fn rollback_is_available_from_shadow_and_canary_without_a_gate() {
-        for stage_events in [vec![RolloutEvent::ShadowStarted], vec![
-            RolloutEvent::ShadowStarted,
-            RolloutEvent::GateEvaluated(promote()),
-            RolloutEvent::CanaryStarted { share_percent: 10 },
-        ]] {
+        for stage_events in [
+            vec![RolloutEvent::ShadowStarted],
+            vec![
+                RolloutEvent::ShadowStarted,
+                RolloutEvent::GateEvaluated(promote()),
+                RolloutEvent::CanaryStarted { share_percent: 10 },
+            ],
+        ] {
             let mut rollout = rollout();
             let mut at = 0;
             for event_kind in stage_events {
@@ -353,7 +379,9 @@ mod tests {
         assert!(rollout
             .apply(event(
                 5,
-                RolloutEvent::RollbackRequested { reason: "regression".into() }
+                RolloutEvent::RollbackRequested {
+                    reason: "regression".into()
+                }
             ))
             .is_err());
         let revert = Rollout::new("baseline", "v2").unwrap();
@@ -363,17 +391,28 @@ mod tests {
     #[test]
     fn a_rollback_must_state_a_reason() {
         let mut rollout = rollout();
-        rollout.apply(event(1, RolloutEvent::ShadowStarted)).unwrap();
+        rollout
+            .apply(event(1, RolloutEvent::ShadowStarted))
+            .unwrap();
         assert!(rollout
-            .apply(event(2, RolloutEvent::RollbackRequested { reason: "  ".into() }))
+            .apply(event(
+                2,
+                RolloutEvent::RollbackRequested {
+                    reason: "  ".into()
+                }
+            ))
             .is_err());
     }
 
     #[test]
     fn canary_share_is_bounded() {
         let mut rollout = rollout();
-        rollout.apply(event(1, RolloutEvent::ShadowStarted)).unwrap();
-        rollout.apply(event(2, RolloutEvent::GateEvaluated(promote()))).unwrap();
+        rollout
+            .apply(event(1, RolloutEvent::ShadowStarted))
+            .unwrap();
+        rollout
+            .apply(event(2, RolloutEvent::GateEvaluated(promote())))
+            .unwrap();
         assert!(rollout
             .apply(event(3, RolloutEvent::CanaryStarted { share_percent: 0 }))
             .is_err());
@@ -388,8 +427,12 @@ mod tests {
     #[test]
     fn events_must_advance_in_time() {
         let mut rollout = rollout();
-        rollout.apply(event(5, RolloutEvent::ShadowStarted)).unwrap();
-        assert!(rollout.apply(event(5, RolloutEvent::GateEvaluated(hold()))).is_err());
+        rollout
+            .apply(event(5, RolloutEvent::ShadowStarted))
+            .unwrap();
+        assert!(rollout
+            .apply(event(5, RolloutEvent::GateEvaluated(hold())))
+            .is_err());
     }
 
     #[test]

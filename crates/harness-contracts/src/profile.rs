@@ -72,8 +72,7 @@ impl RobotProfile {
     }
 
     pub fn read(path: &Path) -> Result<Self, String> {
-        let bytes =
-            std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
         let profile: RobotProfile = serde_json::from_slice(&bytes)
             .map_err(|error| format!("invalid robot profile {}: {error}", path.display()))?;
         profile.validate()?;

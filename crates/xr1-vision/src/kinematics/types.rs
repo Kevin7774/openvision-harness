@@ -58,7 +58,10 @@ mod tests {
         let profile = RobotProfile::xr1_thor_reference();
         assert_eq!(profile.tool.tip_center_m, TIP_CENTER_M);
         assert_eq!(profile.tool.fixed_pad_inner_m, FIXED_PAD_INNER_M);
-        assert_eq!(profile.tool.moving_pad_inner_open_m, MOVING_PAD_INNER_OPEN_M);
+        assert_eq!(
+            profile.tool.moving_pad_inner_open_m,
+            MOVING_PAD_INNER_OPEN_M
+        );
         assert_eq!(profile.tool.open_jaw_gap_m, OPEN_JAW_GAP_M);
         assert_eq!(profile.planning.min_tip_z_m, PLANNING_MIN_TIP_Z_M);
         assert_eq!(

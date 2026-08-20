@@ -138,7 +138,8 @@ mod tests {
         .is_ok());
         assert!(validate_command_args(None, &args(&["--oops"]), &[], &[]).is_err());
         assert!(
-            validate_command_args(None, &args(&["--calibration"]), &["--calibration"], &[]).is_err()
+            validate_command_args(None, &args(&["--calibration"]), &["--calibration"], &[])
+                .is_err()
         );
     }
 

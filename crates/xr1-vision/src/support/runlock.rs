@@ -101,7 +101,10 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.contains("another robot action loop is active"));
-        assert!(error.contains("session-a"), "holder should be named: {error}");
+        assert!(
+            error.contains("session-a"),
+            "holder should be named: {error}"
+        );
 
         drop(first);
         // Released with the descriptor, so the next loop can run.

@@ -74,11 +74,18 @@ pub enum CalibrationStatus {
     Valid,
     /// Belongs to a different robot, station, or URDF — the copied-to-another-
     /// machine case Step 1 calls out by name.
-    Mismatch { reason: String },
+    Mismatch {
+        reason: String,
+    },
     /// Correct robot, but measured too long ago to trust.
-    Stale { age_ns: u64, valid_for_ns: u64 },
+    Stale {
+        age_ns: u64,
+        valid_for_ns: u64,
+    },
     /// Too few samples or a non-finite / implausible error metric to trust.
-    Insufficient { reason: String },
+    Insufficient {
+        reason: String,
+    },
 }
 
 impl CalibrationStatus {
@@ -180,8 +187,7 @@ pub struct CalibrationManifest {
 
 impl CalibrationManifest {
     pub fn read(path: &Path) -> Result<Self, String> {
-        let bytes =
-            std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
         serde_json::from_slice(&bytes)
             .map_err(|error| format!("invalid calibration manifest {}: {error}", path.display()))
     }
@@ -189,10 +195,7 @@ impl CalibrationManifest {
     /// The manifest as a whole gates motion only if every binding is `Valid` for
     /// the present robot. The first offending binding is returned so the operator
     /// sees exactly what blocked commissioning.
-    pub fn gate_motion(
-        &self,
-        identity: &RobotIdentity,
-    ) -> Result<(), (String, CalibrationStatus)> {
+    pub fn gate_motion(&self, identity: &RobotIdentity) -> Result<(), (String, CalibrationStatus)> {
         if self.robot_id != identity.robot_id {
             return Err((
                 "manifest".into(),

@@ -93,8 +93,14 @@ fn golden_set() -> GoldenSet {
         "golden-1",
         100,
         vec![
-            GoldenItem { episode_id: "gold-1".into(), truth: Judgement::Success },
-            GoldenItem { episode_id: "gold-2".into(), truth: Judgement::Failure },
+            GoldenItem {
+                episode_id: "gold-1".into(),
+                truth: Judgement::Success,
+            },
+            GoldenItem {
+                episode_id: "gold-2".into(),
+                truth: Judgement::Failure,
+            },
         ],
     )
     .unwrap()
@@ -156,14 +162,20 @@ fn a_better_challenger_walks_shadow_canary_and_promotion() {
 
     let mut rollout = Rollout::new("v2", "baseline").unwrap();
     rollout
-        .apply(RolloutRecord { at_ns: 1, event: RolloutEvent::ShadowStarted })
+        .apply(RolloutRecord {
+            at_ns: 1,
+            event: RolloutEvent::ShadowStarted,
+        })
         .unwrap();
 
     // Shadow gate passes, but nothing is deployed yet.
     let shadow_decision = evaluate(&request, &criteria);
     assert!(shadow_decision.is_promote(), "{shadow_decision:?}");
     rollout
-        .apply(RolloutRecord { at_ns: 2, event: RolloutEvent::GateEvaluated(shadow_decision) })
+        .apply(RolloutRecord {
+            at_ns: 2,
+            event: RolloutEvent::GateEvaluated(shadow_decision),
+        })
         .unwrap();
     assert_eq!(rollout.stage(), RolloutStage::Shadow);
     assert_eq!(rollout.serving_policy_id(), "baseline");
@@ -179,7 +191,10 @@ fn a_better_challenger_walks_shadow_canary_and_promotion() {
 
     // Canary gate passes, and only now does the challenger serve.
     rollout
-        .apply(RolloutRecord { at_ns: 4, event: RolloutEvent::GateEvaluated(evaluate(&request, &criteria)) })
+        .apply(RolloutRecord {
+            at_ns: 4,
+            event: RolloutEvent::GateEvaluated(evaluate(&request, &criteria)),
+        })
         .unwrap();
     assert_eq!(rollout.stage(), RolloutStage::Promoted);
     assert_eq!(rollout.serving_policy_id(), "v2");
@@ -190,7 +205,10 @@ fn a_better_challenger_walks_shadow_canary_and_promotion() {
     // The rollback target is a real, registered artifact with resolvable lineage.
     let lineage = registry.lineage("v2").unwrap();
     assert_eq!(
-        lineage.iter().map(|a| a.policy_id.as_str()).collect::<Vec<_>>(),
+        lineage
+            .iter()
+            .map(|a| a.policy_id.as_str())
+            .collect::<Vec<_>>(),
         vec!["v2", "baseline"]
     );
 }
@@ -246,7 +264,10 @@ fn a_judge_that_stops_abstaining_cannot_promote_even_with_a_better_score() {
 fn a_canary_regression_rolls_back_to_the_incumbent() {
     let mut rollout = Rollout::new("v2", "baseline").unwrap();
     rollout
-        .apply(RolloutRecord { at_ns: 1, event: RolloutEvent::ShadowStarted })
+        .apply(RolloutRecord {
+            at_ns: 1,
+            event: RolloutEvent::ShadowStarted,
+        })
         .unwrap();
     rollout
         .apply(RolloutRecord {
@@ -259,7 +280,10 @@ fn a_canary_regression_rolls_back_to_the_incumbent() {
         })
         .unwrap();
     rollout
-        .apply(RolloutRecord { at_ns: 3, event: RolloutEvent::CanaryStarted { share_percent: 10 } })
+        .apply(RolloutRecord {
+            at_ns: 3,
+            event: RolloutEvent::CanaryStarted { share_percent: 10 },
+        })
         .unwrap();
     // Rollback needs no gate and no argument beyond a stated reason.
     rollout

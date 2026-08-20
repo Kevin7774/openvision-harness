@@ -1,4 +1,4 @@
-# XR1 workspace
+# OpenVision Harness — XR1 workspace
 
 Grasping stack for an **AstraBot XR1** humanoid on a Jetson AGX Thor
 (`tegra-ubuntu`, Ubuntu 24.04, PREEMPT_RT kernel, ROS 2 Jazzy).
@@ -9,16 +9,46 @@ themselves within ~100 ms. This workspace is everything *around* that: the
 perception and kinematics that decide where to reach, the thin Python layer that
 actually commands the arms, and the evidence ledger that says whether it worked.
 
+## Current status — 2026-08-20
+
+The harness now has a tested software path from typed hardware contracts and a
+registered task pack through bounded visual/tactile execution and policy
+promotion. That does **not** mean the robot is autonomous or self-improving yet:
+the live D405/pressure calibration, real evaluation data and automatic reset are
+still missing.
+
+| Area | Current state |
+|---|---|
+| Robot-independent contracts | `harness-contracts` defines five hardware-independent ports plus versioned `RobotProfile` and `CalibrationManifest` contracts |
+| Task packaging | The yellow-block pick/place behavior lives in `task-packs/yellow-block-pick-place` and is selected through the task registry instead of being hard-coded into the core |
+| Runtime boundaries | Argument parsing, adapter protocol, evidence handling and action locking are isolated under `xr1-vision/src/support`; physical actions remain bounded, serialized and fail-closed |
+| Near-field/contact grasping | D405 observation, two-pad pressure assessment and the bounded close/hold/single-release loop are implemented and offline-tested; exact live USB mapping, thresholds and calibration are not yet recorded |
+| Evaluation and promotion | `harness-evaluation` implements immutable episodes, a two-channel judge with abstention, frozen golden sets, policy lineage, baseline/challenger gates, shadow, canary, promotion and unconditional rollback |
+| Live readiness | Blocked by robot-host permission failure plus unfinished D405, pressure and visual-servo calibration; do not interpret passing software tests as permission to use `--go` |
+
+There is currently **no trainer, no real-robot episode corpus, no real golden
+set or measured judge bias, and no automatic reset**. The repository implements
+and tests the path that decides whether a separately produced challenger may be
+promoted; it does not yet implement "self-evolution." See
+[`docs/assessment/harness-step-5-evaluation.md`](docs/assessment/harness-step-5-evaluation.md)
+and the live constraints in
+[`docs/operations/status.md`](docs/operations/status.md).
+
+Latest local verification: **155 Rust tests passed**, **24 Python tests ran
+(1 hardware-dependent test skipped)**, Clippy passed with warnings denied, and
+all documentation links resolved. These are offline/software checks only.
+
 ```
-crates/xr1-vision/   Rust library + thin CLI: task executive, observation,
-                     perception, planning, kinematics and safety        <- main line
-py/                  Python: the rclpy / hardware boundary              <- see AGENTS.md §language
-ros/rtc_teleop/      C++ ROS 2 nodes (source for the vendor teleop path)
-mac/                 Swift: the external-camera recorder that runs on the Mac
-bin/home             one-line wrapper that exports ROS_DOMAIN_ID before homing
-data/                measured evidence: vista_runs/ (observations), experiments/,
-                     snapshots/ --- append-only, every record dated
-docs/                architecture / operations / development / decisions
+crates/harness-contracts/    Hardware-independent ports, robot profiles and calibration manifests
+crates/harness-evaluation/   Episode ledger, judge/golden set, policy promotion lifecycle
+crates/xr1-vision/           Rust library + CLI: executive, perception, planning and safety
+task-packs/                  Registered task-specific detection and behavior packages
+py/                          Python rclpy / hardware boundary             <- see AGENTS.md §language
+ros/rtc_teleop/              C++ ROS 2 nodes for the vendor teleop path
+mac/                         Swift external-camera recorder for the Mac
+bin/                         Operational wrappers and repository checks
+data/                        Append-only, dated observations and experiment evidence
+docs/                        Architecture, operations, assessments and decisions
 ```
 
 ## Run it

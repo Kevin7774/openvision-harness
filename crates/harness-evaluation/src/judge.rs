@@ -178,10 +178,16 @@ pub struct AbstainMonitor {
 pub enum AbstainHealth {
     Healthy,
     /// Abstaining so often the stream carries little signal.
-    TooHigh { rate: f64, ceiling: f64 },
+    TooHigh {
+        rate: f64,
+        ceiling: f64,
+    },
     /// Abstention collapsed. ADR 0005: usually the judge learned to be
     /// confidently wrong, which is exactly the mislabel feedback loop.
-    SuspiciousDrop { rate: f64, baseline: f64 },
+    SuspiciousDrop {
+        rate: f64,
+        baseline: f64,
+    },
 }
 
 impl AbstainMonitor {
@@ -267,20 +273,28 @@ mod tests {
     fn agreeing_channels_decide_and_disagreeing_channels_abstain() {
         let judge = judge();
         assert_eq!(
-            judge.rule(ChannelVerdict::Success, ChannelVerdict::Success).0,
+            judge
+                .rule(ChannelVerdict::Success, ChannelVerdict::Success)
+                .0,
             Judgement::Success
         );
         assert_eq!(
-            judge.rule(ChannelVerdict::Failure, ChannelVerdict::Failure).0,
+            judge
+                .rule(ChannelVerdict::Failure, ChannelVerdict::Failure)
+                .0,
             Judgement::Failure
         );
         // ADR 0005: when they disagree, label uncertain and keep it out.
         assert_eq!(
-            judge.rule(ChannelVerdict::Success, ChannelVerdict::Failure).0,
+            judge
+                .rule(ChannelVerdict::Success, ChannelVerdict::Failure)
+                .0,
             Judgement::Abstain
         );
         assert_eq!(
-            judge.rule(ChannelVerdict::Failure, ChannelVerdict::Success).0,
+            judge
+                .rule(ChannelVerdict::Failure, ChannelVerdict::Success)
+                .0,
             Judgement::Abstain
         );
     }
@@ -293,7 +307,9 @@ mod tests {
         assert_eq!(judgement, Judgement::Abstain);
         assert!(reason.contains("no cross-check"));
         assert_eq!(
-            judge.rule(ChannelVerdict::Unavailable, ChannelVerdict::Failure).0,
+            judge
+                .rule(ChannelVerdict::Unavailable, ChannelVerdict::Failure)
+                .0,
             Judgement::Abstain
         );
     }
@@ -321,13 +337,17 @@ mod tests {
         };
         assert_eq!(
             judge
-                .judge(&evidence(serde_json::json!({"scene":"success","grasp":"success"})))
+                .judge(&evidence(
+                    serde_json::json!({"scene":"success","grasp":"success"})
+                ))
                 .unwrap(),
             Judgement::Success
         );
         assert_eq!(
             judge
-                .judge(&evidence(serde_json::json!({"scene":"failure","grasp":"failure"})))
+                .judge(&evidence(
+                    serde_json::json!({"scene":"failure","grasp":"failure"})
+                ))
                 .unwrap(),
             Judgement::Failure
         );

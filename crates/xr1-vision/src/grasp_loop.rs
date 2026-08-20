@@ -623,7 +623,6 @@ struct GripAdapterReport {
     requires_reobservation: bool,
 }
 
-
 /// This loop's label for unknown-argument errors lives in exactly one place.
 fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> Result<(), String> {
     crate::support::args::validate_command_args(Some("grasp-loop"), args, options, flags)
@@ -641,7 +640,6 @@ fn ensure_d405_fresh(received_at_ns: u64, now_ns: u64) -> Result<(), String> {
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

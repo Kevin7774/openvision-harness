@@ -157,7 +157,10 @@ impl EpisodeLog {
             .iter()
             .any(|existing| existing.episode_id == episode.episode_id)
         {
-            return Err(format!("episode {} is already recorded", episode.episode_id));
+            return Err(format!(
+                "episode {} is already recorded",
+                episode.episode_id
+            ));
         }
         self.episodes.push(episode);
         Ok(())
@@ -342,7 +345,8 @@ mod tests {
         .enumerate()
         {
             let id = format!("e{index}");
-            log.append(episode(&id, "policy-a", index as u64 + 1)).unwrap();
+            log.append(episode(&id, "policy-a", index as u64 + 1))
+                .unwrap();
             log.label(&id, label(judgement)).unwrap();
         }
         // 2 of 3 decided; the abstention is not a failure.

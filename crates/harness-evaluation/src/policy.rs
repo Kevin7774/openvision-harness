@@ -39,7 +39,10 @@ impl PolicyRegistry {
     pub fn register(&mut self, artifact: PolicyArtifact) -> Result<(), String> {
         if let Some(existing) = self.get(&artifact.policy_id) {
             return if existing.content_hash == artifact.content_hash {
-                Err(format!("policy {} is already registered", artifact.policy_id))
+                Err(format!(
+                    "policy {} is already registered",
+                    artifact.policy_id
+                ))
             } else {
                 Err(format!(
                     "policy {} is already registered with content hash {:?}, refusing {:?}",
@@ -88,7 +91,9 @@ impl PolicyRegistry {
         let mut current = Some(policy_id.to_string());
         while let Some(id) = current {
             if seen.contains(&id) {
-                return Err(format!("policy lineage for {policy_id} contains a cycle at {id}"));
+                return Err(format!(
+                    "policy lineage for {policy_id} contains a cycle at {id}"
+                ));
             }
             seen.push(id.clone());
             let artifact = self
@@ -121,7 +126,10 @@ mod tests {
         registry.register(artifact("baseline", None, 1)).unwrap();
         assert!(registry.active().is_none());
         registry.activate("baseline").unwrap();
-        assert_eq!(registry.active().map(|a| a.policy_id.as_str()), Some("baseline"));
+        assert_eq!(
+            registry.active().map(|a| a.policy_id.as_str()),
+            Some("baseline")
+        );
     }
 
     #[test]
@@ -143,7 +151,9 @@ mod tests {
     #[test]
     fn an_unresolvable_parent_is_refused() {
         let mut registry = PolicyRegistry::new();
-        let error = registry.register(artifact("child", Some("missing"), 1)).unwrap_err();
+        let error = registry
+            .register(artifact("child", Some("missing"), 1))
+            .unwrap_err();
         assert!(error.contains("not registered"));
     }
 
@@ -151,10 +161,15 @@ mod tests {
     fn lineage_walks_back_to_the_baseline() {
         let mut registry = PolicyRegistry::new();
         registry.register(artifact("baseline", None, 1)).unwrap();
-        registry.register(artifact("v2", Some("baseline"), 2)).unwrap();
+        registry
+            .register(artifact("v2", Some("baseline"), 2))
+            .unwrap();
         registry.register(artifact("v3", Some("v2"), 3)).unwrap();
         let chain = registry.lineage("v3").unwrap();
-        let ids = chain.iter().map(|a| a.policy_id.as_str()).collect::<Vec<_>>();
+        let ids = chain
+            .iter()
+            .map(|a| a.policy_id.as_str())
+            .collect::<Vec<_>>();
         assert_eq!(ids, vec!["v3", "v2", "baseline"]);
     }
 }

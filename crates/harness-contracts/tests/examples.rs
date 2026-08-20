@@ -7,8 +7,7 @@ use std::path::PathBuf;
 
 fn examples_dir() -> PathBuf {
     // crates/harness-contracts -> repo root -> profiles/examples
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../profiles/examples")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../profiles/examples")
 }
 
 #[test]

@@ -637,7 +637,6 @@ struct LoopObservation {
     report: serde_json::Value,
 }
 
-
 fn validate_adapter_report(
     report: serde_json::Value,
     go: bool,
@@ -669,7 +668,6 @@ fn validate_adapter_report(
     }
     Ok(report)
 }
-
 
 fn validate_observation_report(report: &serde_json::Value, source: &str) -> Result<(), String> {
     if report.get("ok") != Some(&serde_json::Value::Bool(true)) {
@@ -718,7 +716,6 @@ fn validate_d405_artifacts(
     Ok(())
 }
 
-
 /// This loop's label for unknown-argument errors lives in exactly one place.
 fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> Result<(), String> {
     crate::support::args::validate_command_args(Some("servo-loop"), args, options, flags)
@@ -727,7 +724,6 @@ fn validate_command_args(args: &[String], options: &[&str], flags: &[&str]) -> R
 fn now_ns() -> Result<u64, String> {
     runtime::unix_time_ns()
 }
-
 
 #[cfg(test)]
 mod tests {
