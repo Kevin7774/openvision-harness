@@ -1,5 +1,7 @@
 # OpenVision Harness — XR1 workspace
 
+**English** | [简体中文](README.zh-CN.md)
+
 Grasping stack for an **AstraBot XR1** humanoid on a Jetson AGX Thor
 (`tegra-ubuntu`, Ubuntu 24.04, PREEMPT_RT kernel, ROS 2 Jazzy).
 
@@ -38,18 +40,208 @@ Latest local verification: **155 Rust tests passed**, **24 Python tests ran
 (1 hardware-dependent test skipped)**, Clippy passed with warnings denied, and
 all documentation links resolved. These are offline/software checks only.
 
+## Architecture and dependency direction
+
+The production dependency direction is intentionally one-way. A lower layer
+never imports or calls a higher one:
+
+```text
+profiles/*.json / calibration data        task-packs/yellow-block-pick-place
+                  │                                     │
+                  └──────────┐               ┌──────────┘
+                             ▼               ▼
+                     harness-contracts (ports)
+                         │              │
+                         ▼              ▼
+                harness-evaluation   xr1-vision
+                         └──────────────►│
+                                        │ validated JSON/subprocess boundary
+                     ┌──────────────────┼──────────────────┐
+                     ▼                  ▼                  ▼
+              py/ ROS adapters   xr1_moveit_bridge   data/ evidence
+                     │
+                     ▼
+           vendor ROS 2 nodes and physical hardware
 ```
-crates/harness-contracts/    Hardware-independent ports, robot profiles and calibration manifests
-crates/harness-evaluation/   Episode ledger, judge/golden set, policy promotion lifecycle
-crates/xr1-vision/           Rust library + CLI: executive, perception, planning and safety
-task-packs/                  Registered task-specific detection and behavior packages
-py/                          Python rclpy / hardware boundary             <- see AGENTS.md §language
-ros/rtc_teleop/              C++ ROS 2 nodes for the vendor teleop path
-mac/                         Swift external-camera recorder for the Mac
-bin/                         Operational wrappers and repository checks
-data/                        Append-only, dated observations and experiment evidence
-docs/                        Architecture, operations, assessments and decisions
-```
+
+`xr1-vision` links the Rust crates and task pack, but it does not link `rclpy`
+or the vendor SDK. It invokes narrow Python adapters and the MoveIt validator
+through explicit, validated process contracts. `astrabot_rtc` and
+`astrabot_teleop` share the ROS graph and deployment environment but are a
+separate C++ teleoperation path; neither is imported by the Rust grasp planner.
+
+## Repository map and dependencies
+
+Only source and evidence tracked by Git are described below. `target/`, Python
+cache directories and `ros/rtc_teleop/{build,install,log}/` are generated,
+ignored products and are not architectural inputs.
+
+### Root files
+
+| Path | Responsibility | Depends on / consumed by |
+|---|---|---|
+| `Cargo.toml` | Rust workspace definition; includes every crate under `crates/*` and `task-packs/*` | Cargo 1.75+; controls all Rust builds |
+| `Cargo.lock` | Reproducible third-party Rust dependency resolution | Generated and consumed by Cargo; must be committed with dependency changes |
+| `AGENTS.md` | Safety, language, evidence and repository workflow contract | Applies to every contributor and automation session |
+| `.gitignore` | Excludes reproducible build products while deliberately keeping measured data tracked | Git; see its comment before pruning evidence |
+| `README.md` / `README.zh-CN.md` | English and Chinese entry points | Link to authoritative architecture and operations documents below |
+
+### `crates/` — Rust core workspace
+
+| Second-level directory | Responsibility | Direct dependencies | Used by |
+|---|---|---|---|
+| `crates/harness-contracts/` | Hardware-neutral traits plus versioned robot identity, geometry and calibration contracts | `serde`, `serde_json` only; deliberately no ROS, perception or robot dependency | `harness-evaluation`, `xr1-vision`, every task pack and profile/calibration tooling |
+| `crates/harness-evaluation/` | Immutable episodes, fleet scope, layered outcome judge with abstention, golden sets, policy registry and rollout gates | `harness-contracts`, `serde`, `serde_json` | `xr1-vision` CLI and future offline evaluation/promotion jobs; never moves hardware |
+| `crates/xr1-vision/` | Main Rust library and CLI: observations, semantic proposals, perception, kinematics, planning, safety, bounded servo/grasp loops and evidence | Both crates above, `yellow-block-pick-place`, `image`, `nalgebra`, `roxmltree`, `serde`, `serde_json` | Operators/agents; calls `py/` adapters and optionally `xr1_moveit_validator` |
+
+Inside each crate:
+
+| Directory | Responsibility | Dependency boundary |
+|---|---|---|
+| `harness-contracts/src/` | `ports.rs` defines the five replaceable seams; `profile.rs` and `calibration.rs` bind measurements to one robot/station/URDF | Lowest Rust layer; consumers may depend on it, it may not depend on them |
+| `harness-contracts/tests/` | Loads `profiles/examples/` and verifies example schemas and fail-closed placeholder calibration | Depends on example JSON, not live hardware |
+| `harness-evaluation/src/` | `episode`, `judge`, `golden`, `policy`, `promotion` and `lifecycle` modules | Depends only on contracts and serialized evidence; no runtime adapter |
+| `harness-evaluation/tests/` | End-to-end synthetic episode → judge → gate → shadow/canary/promotion/rollback tests | Uses synthetic data; it is not a real-robot result |
+| `xr1-vision/src/kinematics/` | URDF model, FK/IK, grasp geometry and joint/floor margins | Uses `nalgebra`, `roxmltree`, active profile constants; feeds planning and safety |
+| `xr1-vision/src/perception/` | ZED/D405 depth, geometry, near-field and visual-servo signals | Uses `image`; yellow detection is re-exported from the registered task pack |
+| `xr1-vision/src/planning/` | Candidate search/ranking and optional batch MoveIt collision validation | Consumes perception + kinematics; invokes `xr1_moveit_validator` when configured |
+| `xr1-vision/src/support/` | Shared argument parsing, JSON adapter protocol, evidence I/O and exclusive action-loop lock | Used by CLI, servo loop and grasp loop so they cannot implement divergent boundaries |
+| `xr1-vision/src/task/` | Typed task events and deterministic replay executive | Consumes proposals, grounded task-skill ids and physical evidence; currently replay-oriented |
+| Other `xr1-vision/src/*.rs` | CLI routing, observations, hardware capability status, safety envelopes, servo/grasp orchestration and task-pack registry | Rust owns decisions; physical execution crosses only through adapters |
+
+### `task-packs/` — task-specific behavior
+
+| Second-level directory | Responsibility | Direct dependencies | Used by |
+|---|---|---|---|
+| `task-packs/yellow-block-pick-place/` | First registered capability: measured yellow detector and `yellow_block.pick_place` task-skill implementation | `harness-contracts` and PNG support from `image` | Registered by `xr1-vision/src/taskpack.rs`; detector is consumed by perception |
+| `yellow-block-pick-place/src/` | `detector.rs` owns the measured colour thresholds; `lib.rs` owns stable object/skill ids and grounding rules | Must not import XR1 core; a new object should be a new pack rather than a core edit |
+
+### `py/` — ROS 2 and hardware boundary
+
+This directory has no subpackages by design: every file is a narrow executable
+boundary. Business decisions stay in Rust.
+
+| File group | Responsibility | Depends on / called by |
+|---|---|---|
+| `astra_arm.py`, `xr1.py` | Joint feedback, rate-limited arm commands, URDF clamps, G2 gripper bring-up and operator commands | ROS 2 Jazzy `rclpy`, vendor topics/SDK; used directly and by motion adapters |
+| `vista_observe.py` | Synchronized ZED RGB/depth, intrinsics, joint state and image-time TF capture | `rclpy`, `sensor_msgs`, `tf2_ros`, OpenCV, NumPy; called by `xr1-vision observe` paths |
+| `d405_observe.py` | Bounded aligned D405 RGB/depth capture with stream/freshness checks | `pyrealsense2`, NumPy, `rclpy`; called by D405 and grasp-loop commands |
+| `tactile_adapter.py` | Two-pad pressure capture, serial or user-space CH340/PyUSB transport, median/MAD evidence | Python stdlib and optional PyUSB; called by tactile and grasp-loop commands |
+| `motion_adapter.py`, `servo_adapter.py`, `grip_adapter.py` | Execute exactly one Rust-approved motion, microstep or jaw increment and return a bound JSON report | `astra_arm.py` or ROS gripper topics; called only after Rust safety approval; dry-run by default |
+| `pad_offset_measure.py` | Offline multi-pose pad/tool-offset measurement | NumPy and the built `xr1-vision fk` command; writes calibration evidence |
+| `xr1_cam.py` | Controls the external Mac recorder over SSH/SCP | `mac/` installation and daemon; used by experiment recording paths |
+| `test_*.py` | Offline adapter contract and refusal tests | Python `unittest`; hardware-dependent paths are injected or skipped |
+
+### `ros/` — C++ ROS 2 workspace
+
+| Second-level directory | Responsibility | Depends on / used by |
+|---|---|---|
+| `ros/rtc_teleop/` | Colcon workspace containing robot startup integration, RTC transport, teleoperation and MoveIt validation | ROS 2 Jazzy/ament, vendor overlay and package-specific system libraries |
+| `ros/rtc_teleop/robot_start/` | Deployment/startup material copied from the robot path | systemd, shell, ROS environment; deploy changes affect shared robot services and require explicit operational review |
+| `ros/rtc_teleop/src/` | Three source packages described below | `colcon build`; outputs are generated in ignored build/install/log directories |
+
+`robot_start/start_up/` is split into:
+
+| Directory | Responsibility | Dependency boundary |
+|---|---|---|
+| `chrony_time_syn/` | Robot time-synchronization helpers | Chrony and robot network configuration |
+| `config/` | Startup configuration consumed by launch/service scripts | Vendor installation layout and ROS endpoints |
+| `documents/` | Deployment notes and supporting material | Operational reference only |
+| `environment/` | Environment setup sourced before services start | ROS distribution, vendor overlay and runtime library paths |
+| `run_script/` | Thor base/supplement launch scripts and systemd unit templates | Calls installed ROS executables; must not be confused with source packages |
+| `test/` | Shell contract tests for controller, RTC, teleop, wrist camera, logging and ZED service definitions | Reads startup files; does not establish live-hardware correctness |
+
+Packages under `ros/rtc_teleop/src/`:
+
+| Package | Responsibility | Direct dependencies | Relationship to harness |
+|---|---|---|---|
+| `astrabot_rtc/` | Generic signaling, peer/media transport and authorized DataChannel routing; deliberately knows no teleop semantics | `rclcpp`, ROS messages/services, FFmpeg, JSON; optional pinned `libdatachannel` backend | Produces `RtcDataPacket`/peer events consumed by `astrabot_teleop`; not used by Rust planning |
+| `astrabot_teleop/` | Grant verification, frame validation, deadman/watchdog, owner lease and typed/shadow command production | `astrabot_rtc`, `astrabot_data_interfaces`, ROS messages, OpenSSL, Protobuf, JSON | Independent teleoperation path into arbitration; does not bypass the grasp safety path |
+| `xr1_moveit_bridge/` | Batch MoveIt 2 collision validation for Rust grasp candidates | MoveIt Core/messages, URDF/SRDF, OctoMap 1.9 ABI, geometry/shape messages, JSON | Executable is invoked by `xr1-vision` planning when MoveIt validation is requested |
+
+Internal directories of the ROS packages:
+
+| Directory | Responsibility | Depends on / consumed by |
+|---|---|---|
+| `cmake/` | Reusable CMake checks/toolchain fragments, including no-exceptions enforcement | Included by package `CMakeLists.txt` and cross-build scripts |
+| `config/` | Runtime YAML and XR1 SRDF configuration | Parsed by the package at startup or installed for MoveIt; invalid values fail closed |
+| `docker/` | Reproducible native/cross-build environments for the RTC packages | Docker plus the pinned ROS/SDK images; not used by running nodes |
+| `docs/` | Package-specific architecture and retrospective notes | Maintainers; subordinate to code and top-level ADRs |
+| `include/` | Public C++ contracts grouped by config/media/protocol/runtime/session/safety/transport concerns | Implemented by the same package's `src/`; consumed by its tests and linked targets |
+| `launch/` | ROS 2 launch entry points | `launch`, `launch_ros`, installed package config and environment variables |
+| `msg/` and `srv/` | Generated RTC/Teleop ROS message and service contracts | `rosidl_default_generators`; consumed across `astrabot_rtc`, `astrabot_teleop`, arbitration and data collection |
+| `proto/` | Frozen Quest `TeleopFrame` wire schema (`astrabot_teleop` only) | Protobuf compiler/runtime; consumed by the teleop frame codec |
+| `scripts/` | Native, Docker and ARM64 build/format/runtime staging gates | CMake/colcon, Docker and pinned SDKs; development/deployment only |
+| `src/` | C++ implementations and node entry points | Public headers plus ROS/system dependencies declared in `package.xml` |
+| `systemd/` | Installed service unit templates for RTC/Teleop | `robot_start` deployment and installed ROS executables |
+| `test/` | Unit, interface, integration and safety-contract tests | Package libraries plus GTest/shell; does not substitute for HIL or soak tests |
+
+`xr1_moveit_bridge` needs only `config/include/src/test`; the RTC packages use
+the broader layout above. Read each package's own README before changing its
+deployment behavior.
+
+### `profiles/` and `examples/` — configuration contracts
+
+| Directory | Responsibility | Depends on / used by |
+|---|---|---|
+| `profiles/examples/` | Example `RobotProfile` and `CalibrationManifest` for the XR1 Thor | Parsed and validated by `harness-contracts`; placeholder calibration intentionally blocks motion |
+| `examples/` | TaskProposal, visual-servo request, tactile config/calibration, D405 target and replay event examples | Inputs to `xr1-vision` CLI and Python adapters; examples are schemas, not current live calibration |
+
+### `data/` — append-only measured evidence
+
+`data/` is intentionally tracked, including images and video. Producers must
+write a new dated record; consumers must not silently rewrite old evidence.
+
+| Second-level directory | Responsibility | Produced by / consumed by |
+|---|---|---|
+| `data/benchmarks/` | Dated IK and semantic-planner latency measurements | Benchmark runs; used for performance baselines, not safety authorization |
+| `data/experiments/` | Operator experiments, journals, before/after frames, hand-eye and servo measurements | `xr1.py`, calibration helpers and operators; referenced by architecture/ADR conclusions |
+| `data/snapshots/` | Small dated diagnostic snapshots, including current robot-host permission failure evidence | Read-only diagnostic commands; referenced by `docs/operations/status.md` |
+| `data/vista_runs/` | Self-describing observation runs with RGB/depth/state/TF bundles | `vista_observe.py` and observation commands; consumed by perception regressions and audits |
+
+Second-level groups inside `data/experiments/`:
+
+| Directory | Evidence held | Depends on / consumed by |
+|---|---|---|
+| `20260817-01/`, `20260817-02/` | Structured run metadata, event records, reports and an external-camera clip | Experiment runner and Mac recorder; used to reconstruct those two runs |
+| `d455_which_arm/` | Wrist-camera arm-identity watch records | D455/USB topology at capture time; hardware-map diagnosis |
+| `handeye/` | Multi-pose samples, placed truth, fit output and annotated ZED image | `pad_offset_measure.py`, FK and operator annotations; tool-frame analysis |
+| `loops/` | Iterative observation/plan journals and marked frames | Historical loop runner; consumed as evidence, not as current executable state |
+| `pad_sideon/` | Side-on gripper-pad images, camera info and joint state | ZED plus named robot pose; pad geometry measurement |
+| `servo/` | Plus/minus joint perturbations and before/after microstep captures | Visual-servo measurement sessions; Jacobian and reconciliation analysis |
+| `teleop_truth/` | Teleoperated successful grasp truth poses | Teleop and robot state; perception/localisation validation |
+| `wrist_extrinsics/`, `wrist_scan/`, `wristcam/` | Wrist-camera identity, scan and extrinsic observations | Wrist camera topology and capture tools; camera-map calibration |
+| `zed_hand_probe/` | ZED/hand overlap probe | ZED image plus robot state; reach/visibility diagnosis |
+
+Second-level runs inside `data/vista_runs/`:
+
+| Directory | Responsibility | Depends on / consumed by |
+|---|---|---|
+| `harness-upgrade-20260819/` | Observations captured while validating the harness upgrade and live capabilities | ZED/ROS capture; status and upgrade assessment |
+| `servo_ik_audit/` | Frames and state used to audit servo perception against IK | Observation bundle, FK/IK code and audit analysis |
+| `yellow-block-harness/` | Canonical yellow-block and gripper-pad observation corpus | Perception regression tests, planning evidence and named-frame claims |
+
+Each Vista run contains an `observations/` ledger. Do not mix frames across runs
+without carrying the frame id, timestamp, transform and robot state. Every
+experiment group depends on the hardware configuration at its recorded time;
+directory names and timestamps are part of the evidence identity.
+
+### `docs/` — authoritative written context
+
+| Second-level directory | Responsibility | Depends on / used by |
+|---|---|---|
+| `docs/architecture/` | Current hardware map, perception, kinematics, proposals and gripper design | Must agree with code and dated evidence; read before structural changes |
+| `docs/assessment/` | Bilingual step-by-step harness assessment and implementation reports | Summarizes contracts, task-pack split, orchestration split and promotion path |
+| `docs/decisions/` | Numbered ADRs explaining irreversible or safety-relevant choices | New contradictions require a superseding ADR, not silent history edits |
+| `docs/development/` | Build gates and visual-servo implementation guidance | Used by contributors and CI-style local checks |
+| `docs/operations/` | Live status, runbook and measured failure modes | Mandatory before hardware actions; depends on the newest dated observations |
+
+### `bin/` and `mac/` — operations support
+
+| Directory | Responsibility | Depends on / used by |
+|---|---|---|
+| `bin/` | `audit-deps`, `check-doc-links`, ROS-domain-aware `home`, and TF frame health check | Shell, Cargo metadata and sourced ROS environment; used by development/operations checks |
+| `mac/` | AVFoundation recorder, launch configuration and installer | macOS Swift/AVFoundation and camera permission; controlled remotely by `py/xr1_cam.py` |
 
 ## Run it
 
