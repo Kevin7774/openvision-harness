@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "schema_version": 1,
+  "mode": "d405_near_field_observation",
+  "frame_id": "d405-20260821-135021-647565339-634702",
+  "serial": "262422270599",
+  "sensor_stamp_ns": 1787291421647565339,
+  "received_at_ns": 1787291421647565339,
+  "frame_joint_delta_ms": 97.505318,
+  "rgb_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-135021-647565339-634702/rgb.png",
+  "depth_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-135021-647565339-634702/depth.npy",
+  "camera_info_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-135021-647565339-634702/camera_info.json",
+  "state_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-135021-647565339-634702/state.json",
+  "latest_path": "/home/astrabot/workspace/data/sensors/d405/latest.json",
+  "depth_valid_ratio": 0.8593995676100629,
+  "frame_count": 20,
+  "observed_fps": 11.00047498545659,
+  "maximum_gap_ms": 113.007398,
+  "sustained_stream_verified": true
+}

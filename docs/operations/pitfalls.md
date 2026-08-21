@@ -16,8 +16,8 @@
 > |---|---|
 > | `scripts/xr1.py …` | `py/xr1.py …`(同一个文件,同一套命令) |
 > | `scripts/xr1_verify.py` | **不存在了**。等价检查:`py/xr1.py pose` ＋ `bin/tf-frames` ＋ `py/xr1_cam.py doctor` |
-> | `scripts/vista_observe.py` | `py/vista_observe.py` / `xr1-vision observe` |
-> | `grasp_block` / `zed_perception` 的感知与 IK | `xr1-vision plan`(`crates/xr1-vision/`) |
+> | `scripts/vista_observe.py` | `py/vista_observe.py` / `bin/xr1 observe` |
+> | `grasp_block` / `zed_perception` 的感知与 IK | `bin/xr1 plan`(`crates/xr1-vision/`) |
 > | `pad_offset.py` 的手眼测量 | `py/pad_offset_measure.py` |
 > | `servo.py` / `plan_descent.py` | **不存在了**,见 [ADR 0003](../decisions/0003-lost-python-pipeline.md) |
 >
@@ -1271,4 +1271,3 @@ q_grasp [-1.357 -2.784  0.603 -1.089 -1.721 -0.074 -2.618]
     做这个判断」**,再考虑怎么把测量做准。
 
 ---
-

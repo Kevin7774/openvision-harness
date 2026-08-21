@@ -3,6 +3,7 @@ name = "xr1-vision"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+build = "build.rs"
 description = "Perception, kinematics and experiment journal for the XR1 grasping stack"
 
 [dependencies]

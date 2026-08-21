@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+import json
 import sys
 from pathlib import Path
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -28,6 +30,29 @@ def candidate(rank, score, *, ik=True, grasp=True):
 
 
 class MotionAdapterTest(unittest.TestCase):
+    def test_load_plan_requires_complete_attempt_directory(self):
+        plan = {
+            "ok": True,
+            "mode": "online_plan_dry_run",
+            "schema_version": 2,
+            "candidates": [],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw_plan = root / "raw-plan.json"
+            raw_plan.write_text(json.dumps(plan), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "immutable plan attempt"):
+                motion_adapter.load_plan(raw_plan)
+
+            attempt = root / "attempt"
+            attempt.mkdir()
+            for name in motion_adapter.ATTEMPT_FILES:
+                (attempt / name).write_text(
+                    json.dumps(plan if name == "plan.json" else {}),
+                    encoding="utf-8",
+                )
+            self.assertEqual(motion_adapter.load_plan(attempt), plan)
+
     def test_selects_lowest_scored_fully_feasible_candidate(self):
         plan = {"candidates": [candidate(1, 8.0), candidate(2, 3.0)]}
         self.assertEqual(motion_adapter.select_candidate(plan)["rank"], 2)

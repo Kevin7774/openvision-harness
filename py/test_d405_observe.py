@@ -15,6 +15,29 @@ import d405_observe
 
 
 class D405ObserveTest(unittest.TestCase):
+    def test_keyframes_keep_first_middle_and_last_frames(self):
+        self.assertEqual(d405_observe.keyframe_indices(20), [0, 10, 19])
+        self.assertEqual(d405_observe.keyframe_indices(15), [0, 7, 14])
+        self.assertEqual(d405_observe.keyframe_indices(0), [])
+
+    def test_frame_wait_retries_timeouts_but_not_backend_errors(self):
+        class Pipeline:
+            def __init__(self, error):
+                self.error = error
+
+            def wait_for_frames(self, _timeout_ms):
+                raise self.error
+
+        self.assertIsNone(
+            d405_observe.wait_for_frames(
+                Pipeline(RuntimeError("Frame didn't arrive within 1000")), 1000
+            )
+        )
+        with self.assertRaisesRegex(d405_observe.D405CaptureError, "device disconnected"):
+            d405_observe.wait_for_frames(
+                Pipeline(RuntimeError("device disconnected")), 1000
+            )
+
     def test_sustained_stream_requires_monotonic_frames_and_rate(self):
         frames = [
             {"received_at_ns": 1_000_000_000 + index * 66_666_667, "frame_number": index}

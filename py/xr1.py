@@ -49,13 +49,13 @@ CLI
     python3 xr1.py home                    # all arm joints to 0
     python3 xr1.py snap  --all             # capture every camera
 
-Block localisation is not here any more: it is `xr1-vision plan` (Rust). The old
+Block localisation is not here any more: it is `bin/xr1 plan` (Rust). The old
 `status` and `blocks` subcommands shelled out to xr1_verify.py / zed_perception.py
 / blocks_to_base.py, none of which exist -- see docs/decisions/0003.
 
 Film an action with the external camera on the Mac via the Rust journal, which
 writes the experiment record and drives xr1_cam.py for the clip:
-    xr1-vision begin --purpose "..." ; ... ; xr1-vision end --status SUCCESS
+    bin/xr1 begin --purpose "..." ; ... ; bin/xr1 end --status SUCCESS
 The old --record flag on motion commands is a dead end -- see _step().
     python3 xr1.py rec setup               # one-time: build/launch the Mac recorder
     python3 xr1.py rec new --label 抓积木   # open a run; later actions join it
@@ -308,7 +308,7 @@ class XR1:
 
         `offset` is the tcp->fingertip-midpoint vector in the tcp frame. The one
         authoritative copy is `TIP_CENTER_M` in crates/xr1-vision/src/kinematics.rs;
-        get it from `xr1-vision fk` rather than writing the numbers again here.
+        get it from `bin/xr1 fk` rather than writing the numbers again here.
         This is the quantity every table-clearance check must use -- see the
         warning in tcp_z(). Returns a 3-vector, or None if TF is unavailable.
         """
@@ -553,8 +553,8 @@ def _step(a, action, params=None, robot=None):
     raise SystemExit(
         "--record is not available: xr1_experiment.py no longer exists.\n"
         "Use the Rust journal instead, which records the same clip:\n"
-        "  xr1-vision begin --purpose TEXT ; xr1-vision note ... ; "
-        "xr1-vision end --status SUCCESS|FAILED")
+        "  bin/xr1 begin --purpose TEXT ; bin/xr1 note ... ; "
+        "bin/xr1 end --status SUCCESS|FAILED")
 
 
 def _add_record_flags(p):
@@ -697,14 +697,14 @@ def cmd_rec(a):
     """Front door for the recording pipeline: camera plumbing lives in
     xr1_cam.py. Dispatched as a subprocess so a broken SSH/ffmpeg path can
     never take down the control layer. Experiment records and movie assembly
-    are the Rust CLI's job now (xr1-vision begin/note/end)."""
+    are the Rust CLI's job now (bin/xr1 begin/note/end)."""
     cam = {"setup": "install", "doctor": "doctor", "status": "status",
            "test": "selftest", "quit": "quit"}
     if a.recmd not in cam:
         raise SystemExit(
             f"unknown rec subcommand {a.recmd!r}; the camera side is "
             f"{'/'.join(sorted(cam))}. Experiment records and movie assembly "
-            "moved to the Rust CLI: xr1-vision begin/note/end.")
+            "moved to the Rust CLI: bin/xr1 begin/note/end.")
     return subprocess.call([sys.executable, os.path.join(SCRIPTS, "xr1_cam.py"),
                             cam[a.recmd]] + list(a.rest))
 

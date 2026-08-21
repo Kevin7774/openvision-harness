@@ -25,7 +25,7 @@ python3 py/xr1.py bringup     # after any reboot: the G2 driver is not a systemd
 bin/tf-frames                 # 52 frames total, 6 zed_*; exits non-zero otherwise
 python3 py/xr1_cam.py doctor  # the Mac recorder is EXCLUSIVE; state=recording means someone else is live
 
-`xr1-vision preflight` runs the first and last of those together. There is no
+`bin/xr1 preflight` runs the first and last of those together. There is no
 single READY/NOT-READY probe any more --- the script that did that is gone
 ([ADR 0003](../decisions/0003-lost-python-pipeline.md)), and the checks above are
 what it actually looked at.
@@ -49,22 +49,22 @@ table *position* does.
 
 | Subsystem | State | Measured |
 |---|---|---|
-| Robot host access | **BLOCKED.** The existing `astrabot` shell is alive, but `/bin/ls`, `/usr/bin/id`, Python, systemd and workspace traversal all return `Permission denied`; new SSH sessions cannot start `/bin/bash`. Repository sync and ROS validation require local-console or administrator repair of the exact directory modes/ACLs/mounts. Do not use recursive `chmod` and do not reboot away the only diagnostic shell. Evidence: `data/snapshots/20260819-131956-host-permission-failure.json` | 08-19 |
+| Robot host access | One-shot SSH commands work through the authenticated connection. The local working tree is synchronized to `/home/astrabot/workspace`, preserving remote `data/` and secrets; the production wrapper resolves a Rust 1.75 Linux aarch64 Release binary. Evidence: `data/snapshots/20260821-131324-release-deployment-and-hardware-validation.json` | 08-21 |
 | Arms | 7 DoF each, CAN: left node ids 11-17 on `can1`, right 21-27 on `can2` | 08-07 |
 | Joint feedback | `/joint_states` is in **radians** (factor 1.0000). Invalid until you publish one command --- publish first, then trust it | 08-13 |
 | Force/contact sensing | Joint `effort` remains `.nan`, so there is no arm force feedback. Two pressure patches are physically installed inside the gripper and have produced operator-tested data; software capture/decision adapters now exist, but live protocol/mapping/threshold calibration is still required | 08-19 |
 | Grippers | UFactory G2 over Modbus RTU: right on `/dev/ttyUSB0`, left on `/dev/ttyAMA5`, 2 Mbaud slave 8, driver `g2_gripper_pc`. 0 = open, 1 = close, 840 mm travel | 08-10 |
 | Head | pitch must be at the **+40° limit** (reads 39) or the ZED and the arm's reach do not overlap. yaw **pinned to 0** --- 40° of yaw is a half-metre localisation error | 08-11 |
 | ZED 2i | owned by `Astrabot_ZED.service`; never open `pyzed` directly. After the 10:43 timeout and an explicitly authorized ZED service restart, read-only captures at 11:45 and 12:28 succeeded. The latest has head pitch 0.681 rad, RGB/depth delta 0 ms and depth valid ratio 0.879. Evidence: `data/vista_runs/yellow-block-harness/observations/20260819-122807-895062316-1623112/` | 08-19 |
-| Right-hand near field | RealSense D405 serial `262422270599` is physically installed. A bounded `848x480@10` capture adapter now requires a sustained fresh aligned stream; the 480 Mbit/s link remains unvalidated for repeatable operation | 08-19 |
-| Gripper pressure | Two internal pressure patches are physically installed. The adapter supports explicit tty or user-space CH340/PyUSB access and two-pad median/MAD sampling; exact USB path, frame fields, pad mapping and thresholds remain unverified on the current runtime | 08-19 |
+| Right-hand near field | D405 serial `262422270599` is on USB 2.0 at 480 Mbit/s. System Python now has user-local `pyrealsense2 2.58.3`; one bounded `848x480@10` capture sustained 20 frames at 11.03 Hz, depth-valid ratio 0.870 and 98.9 ms frame/joint delta. The current scene had two yellow candidates, so Rust correctly refused a target signal. Evidence: `data/snapshots/20260821-132928-d405-live-validation.json` | 08-21 |
+| Gripper pressure | **UNAVAILABLE.** Both `1a86:7523` CH340 devices enumerate, but neither has a tty node; path/protocol/pad mapping and thresholds remain unverified. Evidence: `data/snapshots/20260821-131324-release-deployment-and-hardware-validation.json` | 08-21 |
 | Wrist cameras | two DECXIN monocular units, distinguished **only** by hub port 4.3 / 4.4. Swapping the cables silently swaps left and right | 08-11 |
-| Recorder | Mac at 192.168.123.138, `py/xr1_cam.py`. **Exclusive** --- `stop` from another session silently voids the running experiment | 08-11 |
+| Recorder | **UNAVAILABLE FROM THE ROBOT.** `preflight` reads robot state, then recorder doctor fails because `/home/astrabot/.ssh/id_xr1rec` is absent. Do not copy a private key into the workspace. The recorder remains exclusive when access is restored. Evidence: `data/snapshots/20260821-131324-release-deployment-and-hardware-validation.json` | 08-21 |
 
 ## What works
 
-- **Task proposal → perception → grasp plan**: `xr1-vision observe` then
-  `xr1-vision plan`. `TaskProposal` schema v2 carries the natural-language
+- **Task proposal → perception → grasp plan**: `bin/xr1 observe` then
+  `bin/xr1 plan`. `TaskProposal` schema v2 carries the natural-language
   command, target/destination relations and success predicates; schema v1 files
   are upgraded at the boundary. The deterministic task executive covers
   observe through verify/place/diagnose as a replayable event state machine.
@@ -141,7 +141,7 @@ mistaken for coverage.
 | The tool-frame error is open and partly rotational | grasping is orientation-dependent; the 08-18 success is not repeatable at another block yaw ([ADR 0004](../decisions/0004-tool-frame-error-is-still-open.md)) |
 | Visual servo has no current hardware-validated Jacobian/step record | bounded orchestration exists, but physical convergence is unproven until a +/- measurement and execute/re-observe/reconcile record are captured; [implementation status](../development/visual-servo.md) |
 | Task executive is replay-only | live orchestration still has to turn each real observation/action/evidence result into the same ordered event contract |
-| D405 stream plus pressure USB path/protocol/mapping/thresholds lack a current live calibration record | near-field and contact-dependent execution remains fail-closed even though the software path exists |
+| D405 target/Jacobian and pressure USB path/protocol/mapping/thresholds lack a current live calibration record | the D405 stream is live-validated, but target alignment and contact-dependent execution remain fail-closed |
 | No `cargo deny` / `nextest`; `cargo audit` cannot run on rustc 1.75 | licence drift is unchecked; advisories are covered instead by `bin/audit-deps` (0 of 41 crates vulnerable) ([building](../development/building.md)) |
 
 ## Recovery

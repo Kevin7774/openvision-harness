@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "kind": "d405_live_validation",
+  "captured_at": "2026-08-21T13:29:28.181071806+08:00",
+  "host": "astrabot@192.168.123.102",
+  "software": {
+    "production_binary_sha256": "c4028577195c59121c99397444b6ed36adbfc2f9bd12740aa64738fe85c6eef3",
+    "python": "3.12.3",
+    "pyrealsense2": "2.58.3.10794",
+    "pyrealsense2_install_scope": "astrabot user site",
+    "camera_firmware": "5.15.1.55"
+  },
+  "camera": {
+    "model": "RealSense D405",
+    "serial": "262422270599",
+    "usb_path": "1-4.2.3",
+    "usb_speed_mbps": 480,
+    "profile": "aligned RGB/depth 848x480@10",
+    "frame_id": "d405-20260821-132928-181071806-572573",
+    "frame_count": 20,
+    "observed_fps": 11.031930379173522,
+    "maximum_gap_ms": 108.989524,
+    "sustained_stream_verified": true,
+    "depth_valid_ratio": 0.8704205974842767,
+    "depth_m": {
+      "minimum": 0.09349999576807022,
+      "median": 0.7685999870300293,
+      "maximum": 6.424499988555908
+    },
+    "frame_joint_delta_ms": 98.875473,
+    "observation": "data/sensors/d405/observations/d405-20260821-132928-181071806-572573/"
+  },
+  "production_result": {
+    "capture_ok": true,
+    "rust_near_field_signal_ok": false,
+    "error": "D405 needs exactly one reliable yellow target, found 2",
+    "visual_inspection": "The lower image contains two orange gripper-pad assemblies and no unique clear yellow block; refusing ambiguity is correct.",
+    "grip_authorization_created": false
+  },
+  "diagnosis_and_fix": [
+    "Installed the missing exact aarch64 CPython 3.12 pyrealsense2 wheel in the robot user's site packages.",
+    "A one-second librealsense frame timeout now retries only until the existing overall deadline; other backend errors still fail immediately.",
+    "Stream monotonicity uses the aligned color frame number and device timestamp instead of the composite frameset number.",
+    "The joint-state subscriber is established before camera capture and polled during each frame transaction.",
+    "The 500ms joint-age and frame/joint-delta gates run before NumPy conversion and pipeline shutdown latency; neither threshold was relaxed."
+  ],
+  "safety": {
+    "motion_commands_sent": 0,
+    "services_started_stopped_or_restarted": 0,
+    "result": "live capture passed; ambiguous target failed closed before any jaw action"
+  }
+}

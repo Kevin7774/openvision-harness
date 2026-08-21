@@ -5,6 +5,7 @@ use crate::hardware;
 use crate::kinematics::Chain;
 use crate::observation;
 use crate::perception;
+use crate::plan_cache;
 use crate::planning;
 use crate::proposal::TaskProposal;
 use crate::runtime::{self, RuntimePaths};
@@ -80,7 +81,7 @@ where
             print_help();
             Ok(())
         }
-        Some(command) => Err(format!("unknown command {command:?}; run xr1-vision help")),
+        Some(command) => Err(format!("unknown command {command:?}; run bin/xr1 help")),
     }
 }
 
@@ -130,12 +131,10 @@ fn validate_command_args(
 }
 
 fn print_help() {
-    println!("xr1-vision <command>");
+    println!("bin/xr1 <command>");
     println!("  preflight");
     println!("  observe");
-    println!(
-        "  plan [--proposal FILE] [--latest FILE] [--moveit] # proposal -> validated candidates"
-    );
+    println!("  plan [--proposal FILE] [--latest FILE] [--moveit] # immutable attempt receipt");
     println!("  validate-proposal --proposal FILE # validate/upgrade TaskProposal to schema v2");
     println!("  bundle [--latest FILE] # unified ZED/robot/capability observation JSON");
     println!("  replay --proposal FILE --events FILE # deterministic task-state replay");
@@ -386,20 +385,11 @@ fn plan(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
                 .join(RUN_ID)
                 .join("latest.json")
         });
-    let request = proposal.grasp_request()?;
-    let frame = perception::observe_object(&latest, &request)?;
-    let mut report = planning::plan(proposal, frame, runtime.arm_urdf())?;
-    if flag(&args, "--moveit") {
-        planning::validate_with_moveit(
-            &mut report,
-            runtime.moveit_validator(),
-            runtime.arm_urdf(),
-            runtime.moveit_srdf(),
-        )?;
-    }
+    let use_moveit = flag(&args, "--moveit");
     println!(
         "{}",
-        serde_json::to_string(&report).map_err(|error| error.to_string())?
+        serde_json::to_string(&plan_cache::run(runtime, &latest, proposal, use_moveit)?)
+            .map_err(|error| error.to_string())?
     );
     Ok(())
 }

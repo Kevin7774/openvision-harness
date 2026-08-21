@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and execute one phase from a fresh Rust grasp plan."""
+"""Validate and execute one phase from an immutable Rust plan attempt."""
 
 from __future__ import annotations
 
@@ -14,10 +14,19 @@ PHASE_MAX_AGE_S = {
     "grasp": 300.0,
     "return": 1800.0,
 }
+ATTEMPT_FILES = (
+    "snapshot.json",
+    "proposal.json",
+    "plan.json",
+    "diagnostics.json",
+    "timings.json",
+)
 
 
-def load_plan(path: Path) -> dict:
-    plan = json.loads(path.read_text(encoding="utf-8"))
+def load_plan(attempt: Path) -> dict:
+    if not attempt.is_dir() or not all((attempt / name).is_file() for name in ATTEMPT_FILES):
+        raise ValueError("incomplete immutable plan attempt")
+    plan = json.loads((attempt / "plan.json").read_text(encoding="utf-8"))
     if not plan.get("ok") or plan.get("mode") != "online_plan_dry_run":
         raise ValueError("invalid online plan")
     if plan.get("schema_version", 1) not in (1, 2):
@@ -77,9 +86,10 @@ def phase_solution(candidate: dict, phase: str) -> dict:
     return solution
 
 
-def execute(plan_path: Path, phase: str, go: bool) -> dict:
+def execute(attempt: Path, phase: str, go: bool) -> dict:
     try:
-        plan = load_plan(plan_path)
+        plan = load_plan(attempt)
+        plan_path = attempt / "plan.json"
         age = plan_age_seconds(plan, plan_path)
         max_age = PHASE_MAX_AGE_S[phase]
         if age < 0.0 or age > max_age:
@@ -120,11 +130,11 @@ def execute(plan_path: Path, phase: str, go: bool) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--plan", required=True)
+    parser.add_argument("--attempt", required=True)
     parser.add_argument("--phase", required=True, choices=tuple(PHASE_MAX_AGE_S))
     parser.add_argument("--go", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(execute(Path(args.plan), args.phase, args.go)))
+    print(json.dumps(execute(Path(args.attempt), args.phase, args.go)))
     return 0
 
 

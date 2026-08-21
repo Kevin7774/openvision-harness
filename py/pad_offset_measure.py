@@ -13,8 +13,8 @@ and independently finds the physical pads by their orange colour.
     pad_offset_measure.py solve FRAME_DIR...     many poses, full tool-frame vector
     pad_offset_measure.py --check                offline self-check
 
-`FK_JSON` is the stdout of `xr1-vision fk Q1..Q7` for the pose in that frame;
-`solve` runs `xr1-vision fk` itself for every frame it is given.
+`FK_JSON` is the stdout of `bin/xr1 fk Q1..Q7` for the pose in that frame;
+`solve` runs `bin/xr1 fk` itself for every frame it is given.
 
 One pose cannot separate a constant tool-frame offset from a rotation error in
 the model, which is why `solve` exists: a constant offset gives the SAME vector
@@ -26,7 +26,7 @@ import sys
 
 import numpy as np
 
-FK_BIN = "/home/astrabot/workspace/target/release/xr1-vision"
+FK_BIN = "/home/astrabot/workspace/bin/xr1"
 JOINTS = ["right_arm_%d_joint" % i for i in range(1, 8)]
 
 

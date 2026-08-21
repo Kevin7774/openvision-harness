@@ -68,7 +68,16 @@ pub fn inspect() -> Result<SensorStatus, String> {
         .ok()
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
-    let serial = enumeration.as_deref().and_then(d405_serial);
+    let serial = enumeration
+        .as_deref()
+        .and_then(d405_serial)
+        .or_else(|| {
+            d405_device
+                .as_ref()
+                .and_then(|path| read_trimmed(path.join("serial")).ok())
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(python_d405_serial);
     let speed = d405_device.as_ref().and_then(|path| read_speed(path).ok());
     let sustained_stream_verified = serial
         .as_deref()
@@ -158,11 +167,27 @@ fn fresh_d405_frame_verified(expected_serial: &str) -> Result<bool, String> {
 }
 
 fn d405_serial(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    if !trimmed.is_empty() && trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Some(trimmed.to_string());
+    }
     output
         .lines()
         .find(|line| line.contains("Intel RealSense D405"))
         .and_then(|line| line.split_whitespace().rev().nth(1))
         .map(str::to_string)
+}
+
+fn python_d405_serial() -> Option<String> {
+    let output = Command::new("/usr/bin/python3")
+        .args([
+            "-c",
+            "import pyrealsense2 as r; d=[x for x in r.context().query_devices() if 'D405' in x.get_info(r.camera_info.name)]; print(d[0].get_info(r.camera_info.serial_number) if len(d)==1 else '')",
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    d405_serial(&String::from_utf8_lossy(&output.stdout))
 }
 
 fn serial_candidate(
@@ -344,6 +369,15 @@ fn read_trimmed(path: impl AsRef<Path>) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_python_d405_serial_is_accepted() {
+        assert_eq!(
+            d405_serial("262422270599\n").as_deref(),
+            Some("262422270599")
+        );
+    }
+
     #[test]
     fn usb2_d405_is_degraded_not_absent() {
         assert_eq!(classify_d405(true, Some(480), false).0, Health::Degraded);

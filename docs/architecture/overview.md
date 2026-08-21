@@ -22,7 +22,7 @@ Agent      you / an LLM          emit a semantic TaskProposal v2
   |
 Executive  Rust task module      evidence-driven stage transitions and replay
   |
-Planner    xr1-vision plan       image -> object pose -> grasp candidates -> IK
+Planner    bin/xr1 plan          image -> object pose -> grasp candidates -> IK
   |
 Guard      xr1-vision safety     freshness, step, URDF path, required sensors
   |
@@ -48,6 +48,7 @@ planning does not publish to hardware.
 | `proposal.rs` | natural-language task, target/destination relations and success predicates; no Cartesian or joint pose fields |
 | `task/` | deterministic observe/plan/act/verify/diagnose state transitions and replay |
 | `perception/` | read one observation and produce object geometry plus physical pad/target servo signals |
+| `plan_cache.rs` | bind production plans to exact inputs and publish one immutable attempt per state |
 | `planning/` | full-circle roll search, typed `GraspCandidate` ranking and MoveIt collision validation |
 | `kinematics/model.rs` | URDF chain, FK, gripper-pad geometry and shared motion envelope |
 | `kinematics/ik.rs` | multi-seed numerical IK and duplicate-branch removal |
@@ -67,39 +68,43 @@ planning does not publish to hardware.
 Commands:
 
 ```
-xr1-vision preflight                       py/xr1.py pose + py/xr1_cam.py doctor
-xr1-vision observe                         py/vista_observe.py -> data/vista_runs/<run>/latest.json
-xr1-vision bundle [--latest FILE]          unified immutable observation contract
-xr1-vision validate-proposal --proposal P  validate/upgrade TaskProposal v2
-xr1-vision plan [--proposal P] [--latest L]
+bin/xr1 preflight                       py/xr1.py pose + py/xr1_cam.py doctor
+bin/xr1 observe                         py/vista_observe.py -> data/vista_runs/<run>/latest.json
+bin/xr1 bundle [--latest FILE]          unified immutable observation contract
+bin/xr1 validate-proposal --proposal P  validate/upgrade TaskProposal v2
+bin/xr1 plan [--proposal P] [--latest L]
                                               saved observation -> geometry -> candidates
-xr1-vision replay --proposal P --events E  deterministic task-state replay; no motion
-xr1-vision fk J1 .. JN                     pad-inner points, midpoint and tool rotation
-xr1-vision sensor-status                   read-only D405 / tactile capability state
-xr1-vision d405-observe                    real bounded D405 frame + Rust near-field signal
-xr1-vision tactile-observe --config C      real two-pad pressure sample; no motion
-xr1-vision tactile-assess ...              capture/read two pads + deterministic assessment
-xr1-vision servo-pads --frame DIR          shared Rust physical-pad detector
-xr1-vision servo-observe [--latest L]      physical pad + pinned target signal
-xr1-vision servo-calibrate --input I       +/- observations -> local 3x3 Jacobian
-xr1-vision servo-propose --input I --state S
+bin/xr1 replay --proposal P --events E  deterministic task-state replay; no motion
+bin/xr1 fk J1 .. JN                     pad-inner points, midpoint and tool rotation
+bin/xr1 sensor-status                   read-only D405 / tactile capability state
+bin/xr1 d405-observe                    real bounded D405 frame + Rust near-field signal
+bin/xr1 tactile-observe --config C      real two-pad pressure sample; no motion
+bin/xr1 tactile-assess ...              capture/read two pads + deterministic assessment
+bin/xr1 servo-pads --frame DIR          shared Rust physical-pad detector
+bin/xr1 servo-observe [--latest L]      physical pad + pinned target signal
+bin/xr1 servo-calibrate --input I       +/- observations -> local 3x3 Jacobian
+bin/xr1 servo-propose --input I --state S
                                               bounded proposal + deterministic Rust gate
-xr1-vision servo-step --proposal P [--go]  dry-run or exactly one approved microstep
-xr1-vision servo-reconcile --input I       prediction vs distinct newer observation
-xr1-vision servo-loop --calibration C [--go]
+bin/xr1 servo-step --proposal P [--go]  dry-run or exactly one approved microstep
+bin/xr1 servo-reconcile --input I       prediction vs distinct newer observation
+bin/xr1 servo-loop --calibration C [--go]
                                               bounded observe/action/reconcile orchestration
-xr1-vision grasp-loop ... [--go]           D405/tactile bounded jaw closure
-xr1-vision begin --purpose TEXT            open a numbered experiment
-xr1-vision note --section NAME --text TEXT  append to its report
-xr1-vision grip --side S --state open|close
-xr1-vision end --status SUCCESS|FAILED
-xr1-vision status
+bin/xr1 grasp-loop ... [--go]           D405/tactile bounded jaw closure
+bin/xr1 begin --purpose TEXT            open a numbered experiment
+bin/xr1 note --section NAME --text TEXT  append to its report
+bin/xr1 grip --side S --state open|close
+bin/xr1 end --status SUCCESS|FAILED
+bin/xr1 status
 ```
 
 `observe`, `bundle` and `plan` are deliberately separate: `observe` touches
-hardware and `plan` is pure computation over files, so a plan can be re-run and
-argued with long after the frame was taken. `plan` moves nothing --- its output
-is labelled `online_plan_dry_run` and executing it is a separate, human decision.
+hardware and `plan` is pure computation over files. Production planning is
+executed once per exact input state and published atomically under
+`data/attempts/`; the command returns a short receipt and later inspection reads
+that immutable attempt. A changed robot
+state or model invalidates the key and requires a fresh observation and plan.
+`plan` moves nothing; the saved plan is labelled `online_plan_dry_run`, and
+execution is a separate, human decision through the attempt-only adapter.
 `servo-propose` is also non-executing: `ready_for_execution_adapter` only means
 the Rust checks passed. `servo-step` requires a separate `--go`, then the Python
 boundary re-checks envelope age, live joint freshness, start drift and channel
@@ -120,8 +125,8 @@ The semantic proposal and typed candidate schemas are specified in
 | `astra_arm.py` | the safety layer wrapping the vendor SDK (see below) |
 | `vista_observe.py` | read-only ZED snapshot: RGB, aligned depth, intrinsics, image-time TF, joints and optional gripper readings |
 | `xr1_cam.py` | drive the external recorder on the Mac at 192.168.123.138 |
-| `pad_offset_measure.py` | measure the gripper-pad pixel offset against `xr1-vision fk` |
-| `motion_adapter.py` | validate a typed Rust plan, select a fully feasible candidate and execute one phase |
+| `pad_offset_measure.py` | measure the gripper-pad pixel offset against `bin/xr1 fk` |
+| `motion_adapter.py` | accept one immutable Rust attempt, select a fully feasible candidate and execute one phase |
 | `servo_adapter.py` | consume one approved Rust envelope and publish at most one joint microstep |
 | `mac/` | the recorder itself (Swift), installed on the Mac |
 
@@ -148,6 +153,7 @@ be reproduced or audited.
 | Path | Contents |
 |---|---|
 | `vista_runs/<run>/` | observations: `rgb.png`, `depth.npy`, `camera_info.json`, `state.json`, `latest.json` |
+| `attempts/attempt_*/` | immutable production snapshot, proposal, plan, diagnostics and timings |
 | `experiments/<id>/` | one experiment: `REPORT.md` plus frames |
 | `snapshots/` | raw captures |
 | `benchmarks/` | dated, non-motion timing and resource measurements |

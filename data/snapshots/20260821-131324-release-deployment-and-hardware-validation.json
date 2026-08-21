@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "kind": "release_deployment_and_hardware_validation",
+  "captured_at": "2026-08-21T13:13:24+08:00",
+  "host": "astrabot@192.168.123.102",
+  "workspace": "/home/astrabot/workspace",
+  "deployment": {
+    "source": "local working tree",
+    "sync_policy": "replace code; preserve remote data, git metadata, secrets, environment files and generated build directories",
+    "checksum_resync_changes": 0,
+    "remote_data_preserved": true,
+    "binary": {
+      "path": "target/release/xr1-vision",
+      "format": "ELF 64-bit LSB PIE, ARM aarch64, GNU/Linux, stripped",
+      "build_id_sha1": "d303e2092e4eb6d15e7a078a17bacc2cd8d73184",
+      "sha256": "c4028577195c59121c99397444b6ed36adbfc2f9bd12740aa64738fe85c6eef3",
+      "size_bytes": 1706224,
+      "built_with": "rust:1.75-bookworm on Linux aarch64",
+      "wrapper_help_ok": true
+    },
+    "remote_python_tests": {
+      "ran": 27,
+      "passed": 26,
+      "skipped": 1,
+      "failed": 0
+    }
+  },
+  "preflight": {
+    "ok": false,
+    "robot_state_read_ok": true,
+    "left_joints_rad": [0.0, 0.0, 0.0, -0.0, 0.0, -0.0, -0.0],
+    "right_joints_rad": [-1.285, -2.236, 0.596, -1.29, -1.27, -1.137, 1.015],
+    "neck_pitch_yaw_rad": [0.681, 0.0],
+    "left_gripper_mm": 750,
+    "right_gripper_mm": 840,
+    "left_tcp_z_m": 0.40197367289346425,
+    "right_tcp_z_m": 0.9292584372043686,
+    "failure": "robot host has no /home/astrabot/.ssh/id_xr1rec, so recorder doctor cannot authenticate to apple@192.168.123.138"
+  },
+  "sensor_status": {
+    "d405": {
+      "present": false,
+      "serial": null,
+      "usb_speed_mbps": null,
+      "sustained_stream_verified": false,
+      "health": "unavailable",
+      "reason": "USB device or librealsense enumeration missing"
+    },
+    "tactile_candidates": [
+      {
+        "usb_path": "1-3.4.3",
+        "vendor_product": "1a86:7523 CH340",
+        "tty": null,
+        "health": "unavailable"
+      },
+      {
+        "usb_path": "1-4.2.4",
+        "vendor_product": "1a86:7523 CH340",
+        "tty": null,
+        "health": "unavailable"
+      }
+    ]
+  },
+  "d405_observe": {
+    "ok": false,
+    "error": "pyrealsense2 is not installed",
+    "usr_python": "3.12.3: module absent",
+    "deploy_venv_python": "3.10.20: module absent",
+    "rs_enumerate_devices_installed": false,
+    "librealsense_debian_packages": [],
+    "usb_8086_0b5b_present": false
+  },
+  "safety": {
+    "motion_commands_sent": 0,
+    "services_started_stopped_or_restarted": 0,
+    "grip_authorizations_created": 0,
+    "result": "near-field and contact-dependent execution remained fail-closed"
+  }
+}

@@ -16,6 +16,7 @@ MAX_ENVELOPE_AGE_S = 1.0
 MAX_POSITION_AGE_S = 0.5
 MAX_POSITION_DRIFT_MM = 40
 MAX_CLOSE_INCREMENT = 0.05
+MAX_D405_ALIGNMENT_AGE_S = 3.0
 MAX_COMMAND_SETTLE_S = 5.0
 MIN_COMMAND_MOTION_MM = 1
 
@@ -36,7 +37,7 @@ def load_envelope(path: Path) -> dict:
 def validate_envelope(envelope: dict, now_ns: int | None = None) -> None:
     if envelope.get("ok") is not True or envelope.get("mode") != "tactile_grip_increment":
         raise GripRefused("not a tactile grip increment envelope")
-    if envelope.get("schema_version") != 1:
+    if envelope.get("schema_version") != 2:
         raise GripRefused(f"unsupported grip schema {envelope.get('schema_version')!r}")
     generated_at_ns = envelope.get("generated_at_ns")
     if not isinstance(generated_at_ns, int) or generated_at_ns <= 0:
@@ -85,6 +86,47 @@ def validate_envelope(envelope: dict, now_ns: int | None = None) -> None:
         raise GripRefused("close increment must increase the close fraction")
     if direction == "release" and delta >= 0.0:
         raise GripRefused("release increment must decrease the close fraction")
+    if direction == "close":
+        alignment = envelope.get("d405_alignment")
+        target_alignment = alignment.get("target") if isinstance(alignment, dict) else None
+        sample = alignment.get("sample") if isinstance(alignment, dict) else None
+        if not isinstance(target_alignment, dict) or not isinstance(sample, dict):
+            raise GripRefused("close requires D405 alignment target and sample")
+        if not all(
+            isinstance(frame_id, str) and frame_id.startswith("d405-")
+            for frame_id in (
+                target_alignment.get("source_frame_id"),
+                sample.get("frame_id"),
+            )
+        ):
+            raise GripRefused("D405 alignment is not bound to named D405 frames")
+        received_at_ns = sample.get("received_at_ns")
+        if not isinstance(received_at_ns, int) or isinstance(received_at_ns, bool):
+            raise GripRefused("D405 alignment sample has no receive timestamp")
+        alignment_age_s = (now_ns - received_at_ns) / 1e9
+        if not 0.0 <= alignment_age_s <= MAX_D405_ALIGNMENT_AGE_S:
+            raise GripRefused(f"D405 alignment is stale ({alignment_age_s:.3f}s)")
+        target_signal = target_alignment.get("signal")
+        tolerance = target_alignment.get("tolerance")
+        sample_signal = sample.get("signal")
+        vectors = (target_signal, tolerance, sample_signal)
+        if not all(
+            isinstance(vector, list)
+            and len(vector) == 3
+            and all(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                for value in vector
+            )
+            for vector in vectors
+        ) or any(value <= 0.0 for value in tolerance):
+            raise GripRefused("D405 alignment has invalid signal or tolerance")
+        if any(
+            abs(observed - expected) > allowed
+            for observed, expected, allowed in zip(sample_signal, target_signal, tolerance)
+        ):
+            raise GripRefused("D405 alignment has not converged")
 
 
 def validate_live_state(state: dict, side: str, now_ns: int | None = None) -> None:

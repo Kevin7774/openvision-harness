@@ -27,13 +27,13 @@ export SUDO_ASKPASS=/tmp/askpass.sh    # then: sudo -A <cmd>
 ## 1. Observe and plan
 
 ```bash
-xr1-vision observe        # -> data/vista_runs/yellow-block-harness/latest.json
-xr1-vision bundle         # validate and print the unified observation contract
-xr1-vision validate-proposal --proposal examples/pick_place_proposal.json
-xr1-vision plan           # dry run; prints ranked candidates as JSON
-xr1-vision plan --proposal examples/grasp_proposal.json
-xr1-vision plan --proposal examples/grasp_proposal.json --latest SAVED_LATEST_JSON
-xr1-vision replay --proposal examples/pick_place_proposal.json \
+bin/xr1 observe        # -> data/vista_runs/yellow-block-harness/latest.json
+bin/xr1 bundle         # validate and print the unified observation contract
+bin/xr1 validate-proposal --proposal examples/pick_place_proposal.json
+bin/xr1 plan           # immutable Release attempt receipt
+bin/xr1 plan --proposal examples/grasp_proposal.json
+bin/xr1 plan --proposal examples/grasp_proposal.json --latest SAVED_LATEST_JSON
+bin/xr1 replay --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
 ```
 
@@ -43,13 +43,28 @@ An aggregate value can only confirm a hypothesis you already got right --- one
 session read "yellow pixel count" off nine wrist frames, concluded the table was
 empty, and then scanned the wrong axis for twenty minutes.
 
+Production `plan` writes one immutable result under
+`data/attempts/attempt_<frame>_<key>/`. Repeating the same request reads its
+saved attempt; it never invokes the planner again. The command returns only a
+short receipt containing `attempt_path` and `plan_path`; full diagnostics stay
+in the attempt directory. The execution adapter accepts `--attempt DIR`, never
+an arbitrary plan file. The key binds the snapshot,
+joint state, image-time TF, RGB/depth/intrinsics, URDF, calibration inputs,
+proposal, planner revision, safety policy and optional MoveIt validator/SRDF. After
+the robot or scene changes, observe again; the new state necessarily gets a new
+key and a new plan.
+
+From a workstation use `bin/xr1 --host astrabot@192.168.123.102 COMMAND ...`.
+It runs one SSH command without a PTY and exits; do not maintain an interactive
+SSH shell or poll it with fixed 30-second waits.
+
 ### Bounded near-target alignment
 
 With a 3×3 calibration measured at the current pose family:
 
 ```bash
-xr1-vision servo-loop --calibration /tmp/servo-calibration.json
-xr1-vision servo-loop --calibration /tmp/servo-calibration.json --go
+bin/xr1 servo-loop --calibration /tmp/servo-calibration.json
+bin/xr1 servo-loop --calibration /tmp/servo-calibration.json --go
 ```
 
 The first command observes live state and dry-runs the next approved microstep.
@@ -70,12 +85,21 @@ Copy the three files under `examples/*.example.json`, replace every placeholder
 with measured values, and keep the originals as a reminder that defaults are
 not calibration. First verify each read-only boundary:
 
+On the robot, production `/usr/bin/python3` must import `pyrealsense2`; the
+validated user-local binding is `2.58.3.10794` for CPython 3.12 aarch64. Do not
+switch this boundary to the deploy venv, because the same process also needs the
+ROS 2 Python packages.
+
 ```bash
-xr1-vision d405-observe
-xr1-vision tactile-observe --config /tmp/tactile.json
-xr1-vision tactile-assess --mode baseline \
+bin/xr1 d405-observe
+bin/xr1 tactile-observe --config /tmp/tactile.json
+bin/xr1 tactile-assess --mode baseline \
   --config /tmp/tactile.json --calibration /tmp/tactile-calibration.json
 ```
+
+Every accepted D405 observation atomically retains first/middle/last RGB-depth
+keyframes in `data/sensors/d405/observations/<frame-id>/keyframes.json`. They are
+occlusion memory for inspection, not standalone motion authorization.
 
 Use repeated `tactile-observe` samples with the jaws open, then gentle manual
 pressure on each named patch, to determine baseline, polarity, noise, contact,
@@ -85,7 +109,7 @@ from USB enumeration or from one arbitrary sample.
 Use a D405 Jacobian measured at the current pose family for final alignment:
 
 ```bash
-xr1-vision servo-loop --calibration /tmp/d405-jacobian.json \
+bin/xr1 servo-loop --calibration /tmp/d405-jacobian.json \
   --d405-target /tmp/d405-grasp-target.json
 # Inspect the fresh image and dry-run report before the separate --go action.
 ```
@@ -95,7 +119,7 @@ the contact loop. A real run performs only one jaw increment per fresh pressure
 sample and rechecks D405 before any further close:
 
 ```bash
-xr1-vision grasp-loop --tactile-config /tmp/tactile.json \
+bin/xr1 grasp-loop --tactile-config /tmp/tactile.json \
   --tactile-calibration /tmp/tactile-calibration.json \
   --d405-target /tmp/d405-grasp-target.json
 # Repeat with --go only after the dry run passes.
@@ -111,10 +135,10 @@ checks that both pads retained pressure without an excessive drop.
 ## 2. Run an experiment
 
 ```bash
-xr1-vision begin --purpose "..."
-xr1-vision note --section observation --text "..."
-xr1-vision grip --side right --state close
-xr1-vision end --status SUCCESS
+bin/xr1 begin --purpose "..."
+bin/xr1 note --section observation --text "..."
+bin/xr1 grip --side right --state close
+bin/xr1 end --status SUCCESS
 ```
 
 One action, then observe again. Write the prediction as a number *before*

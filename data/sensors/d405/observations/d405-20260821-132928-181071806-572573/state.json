@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "frame_id": "d405-20260821-132928-181071806-572573",
+  "serial": "262422270599",
+  "sensor_stamp_ns": 1787290168181071806,
+  "received_at_ns": 1787290168181071806,
+  "capture_started_at_ns": 1787290163621511698,
+  "frame_joint_delta_ms": 98.875473,
+  "joint_state": {
+    "received_at_ns": 1787290168082196333,
+    "positions_rad": {
+      "head_pitch_joint": 0.680678427,
+      "head_yaw_joint": 0.0,
+      "left_arm_1_joint": 0.0,
+      "left_arm_2_joint": 0.0001907983529486472,
+      "left_arm_3_joint": 1.3159148915685647e-05,
+      "left_arm_4_joint": -9.963355607590562e-05,
+      "left_arm_5_joint": 2.4438419414844776e-05,
+      "left_arm_6_joint": -3.891906701937579e-05,
+      "left_arm_7_joint": -7.59396429646357e-06,
+      "right_arm_1_joint": -1.2847467859230612,
+      "right_arm_2_joint": -2.2362620628127585,
+      "right_arm_3_joint": 0.5962523166402158,
+      "right_arm_4_joint": -1.290416220726799,
+      "right_arm_5_joint": -1.2703391192382958,
+      "right_arm_6_joint": -1.1371638790471597,
+      "right_arm_7_joint": 1.0154857891249238
+    }
+  },
+  "depth": {
+    "unit": "m",
+    "valid_ratio": 0.8704205974842767,
+    "valid_pixels": 354296,
+    "minimum_m": 0.09349999576807022,
+    "median_m": 0.7685999870300293,
+    "maximum_m": 6.424499988555908
+  },
+  "stream": {
+    "frame_count": 20,
+    "observed_fps": 11.031930379173522,
+    "maximum_gap_ms": 108.989524,
+    "sustained_stream_verified": true
+  },
+  "device_frames": [
+    {
+      "received_at_ns": 1787290166458798428,
+      "frame_number": 0,
+      "device_timestamp_ms": 1787290166199.3748
+    },
+    {
+      "received_at_ns": 1787290166462785119,
+      "frame_number": 1,
+      "device_timestamp_ms": 1787290166299.8755
+    },
+    {
+      "received_at_ns": 1787290166489656695,
+      "frame_number": 2,
+      "device_timestamp_ms": 1787290166400.2424
+    },
+    {
+      "received_at_ns": 1787290166582488141,
+      "frame_number": 3,
+      "device_timestamp_ms": 1787290166500.4956
+    },
+    {
+      "received_at_ns": 1787290166686263059,
+      "frame_number": 4,
+      "device_timestamp_ms": 1787290166600.642
+    },
+    {
+      "received_at_ns": 1787290166783415106,
+      "frame_number": 5,
+      "device_timestamp_ms": 1787290166700.6548
+    },
+    {
+      "received_at_ns": 1787290166886480992,
+      "frame_number": 6,
+      "device_timestamp_ms": 1787290166800.534
+    },
+    {
+      "received_at_ns": 1787290166981673888,
+      "frame_number": 7,
+      "device_timestamp_ms": 1787290166900.28
+    },
+    {
+      "received_at_ns": 1787290167087101094,
+      "frame_number": 8,
+      "device_timestamp_ms": 1787290166999.8928
+    },
+    {
+      "received_at_ns": 1787290167181464049,
+      "frame_number": 9,
+      "device_timestamp_ms": 1787290167099.3723
+    },
+    {
+      "received_at_ns": 1787290167290453573,
+      "frame_number": 10,
+      "device_timestamp_ms": 1787290167198.7185
+    },
+    {
+      "received_at_ns": 1787290167380916755,
+      "frame_number": 11,
+      "device_timestamp_ms": 1787290167297.9314
+    },
+    {
+      "received_at_ns": 1787290167484381588,
+      "frame_number": 12,
+      "device_timestamp_ms": 1787290167397.0122
+    },
+    {
+      "received_at_ns": 1787290167583703490,
+      "frame_number": 13,
+      "device_timestamp_ms": 1787290167495.985
+    },
+    {
+      "received_at_ns": 1787290167684129083,
+      "frame_number": 14,
+      "device_timestamp_ms": 1787290167595.9888
+    },
+    {
+      "received_at_ns": 1787290167780850284,
+      "frame_number": 15,
+      "device_timestamp_ms": 1787290167695.9626
+    },
+    {
+      "received_at_ns": 1787290167881445258,
+      "frame_number": 16,
+      "device_timestamp_ms": 1787290167795.9138
+    },
+    {
+      "received_at_ns": 1787290167980957624,
+      "frame_number": 17,
+      "device_timestamp_ms": 1787290167895.843
+    },
+    {
+      "received_at_ns": 1787290168081199475,
+      "frame_number": 18,
+      "device_timestamp_ms": 1787290167995.75
+    },
+    {
+      "received_at_ns": 1787290168181071806,
+      "frame_number": 19,
+      "device_timestamp_ms": 1787290168095.6345
+    }
+  ]
+}

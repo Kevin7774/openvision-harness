@@ -12,11 +12,11 @@ Inspect a saved observation, fit the local gain, propose one step, and keep the
 target signal from the first unobstructed frame pinned:
 
 ```bash
-xr1-vision servo-observe --latest data/vista_runs/<run>/latest.json \
+bin/xr1 servo-observe --latest data/vista_runs/<run>/latest.json \
   > /tmp/servo-signal.json
-xr1-vision servo-calibrate --input /tmp/plus-minus-samples.json \
+bin/xr1 servo-calibrate --input /tmp/plus-minus-samples.json \
   > /tmp/servo-calibration.json
-xr1-vision servo-propose \
+bin/xr1 servo-propose \
   --request /tmp/calibrated-servo-request.json \
   --state data/vista_runs/<run>/observations/<frame>/state.json
 ```
@@ -26,20 +26,20 @@ xr1-vision servo-propose \
 and dry-run the hardware boundary before the explicit action:
 
 ```bash
-xr1-vision servo-step --proposal /tmp/servo-proposal.json
-xr1-vision servo-step --proposal /tmp/servo-proposal.json --go
+bin/xr1 servo-step --proposal /tmp/servo-proposal.json
+bin/xr1 servo-step --proposal /tmp/servo-proposal.json --go
 # capture one new frame; never execute a second step first
-xr1-vision observe
-xr1-vision servo-observe > /tmp/servo-after.json
-xr1-vision servo-reconcile --input /tmp/reconciliation.json
+bin/xr1 observe
+bin/xr1 servo-observe > /tmp/servo-after.json
+bin/xr1 servo-reconcile --input /tmp/reconciliation.json
 ```
 
 Once a current calibration exists, the same sequence can be run without hand
 assembling each request:
 
 ```bash
-xr1-vision servo-loop --calibration /tmp/servo-calibration.json
-xr1-vision servo-loop --calibration /tmp/servo-calibration.json --go
+bin/xr1 servo-loop --calibration /tmp/servo-calibration.json
+bin/xr1 servo-loop --calibration /tmp/servo-calibration.json --go
 ```
 
 The first command is a fresh-observation dry run. `--go` permits at most six
@@ -55,9 +55,9 @@ not merely a USB-presence requirement. Both artifacts must carry the generated
 `d405-*` frame IDs, and the calibration may name only right-arm joints:
 
 ```bash
-xr1-vision servo-loop --calibration /tmp/d405-jacobian.json \
+bin/xr1 servo-loop --calibration /tmp/d405-jacobian.json \
   --d405-target /tmp/d405-grasp-target.json
-xr1-vision servo-loop --calibration /tmp/d405-jacobian.json \
+bin/xr1 servo-loop --calibration /tmp/d405-jacobian.json \
   --d405-target /tmp/d405-grasp-target.json --go
 ```
 

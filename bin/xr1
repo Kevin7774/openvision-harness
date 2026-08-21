@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ "${1:-}" == "--host" ]]; then
+    if [[ $# -lt 3 ]]; then
+        echo '{"ok":false,"error":"usage: bin/xr1 --host USER@HOST COMMAND [ARGS...]"}' >&2
+        exit 64
+    fi
+    host="$2"
+    shift 2
+    remote_root="${XR1_REMOTE_WORKSPACE_ROOT:-/home/astrabot/workspace}"
+    printf -v command 'exec %q/bin/xr1' "$remote_root"
+    for argument in "$@"; do
+        printf -v quoted ' %q' "$argument"
+        command+="$quoted"
+    done
+    exec ssh -T \
+        -o ConnectTimeout=8 \
+        -o ControlMaster=auto \
+        -o ControlPersist=600 \
+        -o 'ControlPath=~/.ssh/xr1-%C' \
+        -o ServerAliveInterval=15 \
+        -o ServerAliveCountMax=2 \
+        "$host" "$command"
+fi
+
+binary="$root/target/release/xr1-vision"
+if [[ ! -x "$binary" ]]; then
+    echo '{"ok":false,"error":"production Release binary is missing; a developer must run cargo build --release"}' >&2
+    exit 66
+fi
+
+export XR1_WORKSPACE_ROOT="${XR1_WORKSPACE_ROOT:-$root}"
+exec "$binary" "$@"

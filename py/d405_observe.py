@@ -25,6 +25,12 @@ class D405CaptureError(RuntimeError):
     """The D405 capture did not satisfy the near-field data contract."""
 
 
+def keyframe_indices(frame_count: int) -> list[int]:
+    if frame_count <= 0:
+        return []
+    return sorted({0, frame_count // 2, frame_count - 1})
+
+
 def assess_stream(frame_metadata: list[dict], requested_fps: int) -> dict:
     if len(frame_metadata) < 15:
         raise D405CaptureError(f"D405 produced {len(frame_metadata)} frames; need at least 15")
@@ -81,26 +87,34 @@ def depth_statistics(depth_m) -> dict:
     }
 
 
-def capture_joint_state(timeout_s: float = 2.0) -> dict:
-    import rclpy
-    from sensor_msgs.msg import JointState
+class JointStateSampler:
+    def __init__(self) -> None:
+        import rclpy
+        from sensor_msgs.msg import JointState
 
-    rclpy.init()
-    node = rclpy.create_node("xr1_d405_joint_snapshot")
-    latest = {}
+        self.rclpy = rclpy
+        self.latest = {}
+        rclpy.init()
+        self.node = rclpy.create_node("xr1_d405_joint_snapshot")
 
-    def receive(message) -> None:
-        latest["message"] = message
-        latest["received_at_ns"] = time.time_ns()
+        def receive(message) -> None:
+            self.latest["message"] = message
+            self.latest["received_at_ns"] = time.time_ns()
 
-    subscription = node.create_subscription(JointState, "/joint_states", receive, 10)
-    deadline = time.monotonic() + timeout_s
-    try:
-        while "message" not in latest and time.monotonic() < deadline:
-            rclpy.spin_once(node, timeout_sec=0.05)
-        if "message" not in latest:
+        self.subscription = self.node.create_subscription(
+            JointState, "/joint_states", receive, 10
+        )
+
+    def poll(self, timeout_s: float = 0.0) -> None:
+        self.rclpy.spin_once(self.node, timeout_sec=timeout_s)
+
+    def sample(self, timeout_s: float = 2.0) -> dict:
+        deadline = time.monotonic() + timeout_s
+        while "message" not in self.latest and time.monotonic() < deadline:
+            self.poll(0.05)
+        if "message" not in self.latest:
             raise D405CaptureError(f"no joint state within {timeout_s:.1f}s")
-        message = latest["message"]
+        message = self.latest["message"]
         positions = {
             name: float(message.position[index])
             for index, name in enumerate(message.name)
@@ -108,20 +122,34 @@ def capture_joint_state(timeout_s: float = 2.0) -> dict:
         }
         if not positions:
             raise D405CaptureError("joint state contains no finite position")
-        return {"received_at_ns": latest["received_at_ns"], "positions_rad": positions}
-    finally:
-        node.destroy_subscription(subscription)
-        node.destroy_node()
-        rclpy.shutdown()
+        return {
+            "received_at_ns": self.latest["received_at_ns"],
+            "positions_rad": positions,
+        }
+
+    def close(self) -> None:
+        self.node.destroy_subscription(self.subscription)
+        self.node.destroy_node()
+        self.rclpy.shutdown()
 
 
-def capture_frames(serial: str, width: int, height: int, fps: int, timeout_s: float):
-    import numpy as np
-
+def wait_for_frames(pipeline, timeout_ms: int):
     try:
+        return pipeline.wait_for_frames(timeout_ms)
+    except Exception as exc:  # noqa: BLE001 - librealsense exposes backend-specific errors.
+        if "Frame didn't arrive within" in str(exc):
+            return None
+        raise D405CaptureError(f"D405 frame wait failed: {exc}") from exc
+
+
+def capture_frames(
+    serial: str, width: int, height: int, fps: int, timeout_s: float, joint_sampler
+):
+    try:
+        import numpy as np
         import pyrealsense2 as rs
     except ImportError as exc:
-        raise D405CaptureError("pyrealsense2 is not installed") from exc
+        raise D405CaptureError("NumPy or pyrealsense2 is not installed") from exc
 
     context = rs.context()
     matching = [device for device in context.query_devices() if device.get_info(rs.camera_info.serial_number) == serial]
@@ -144,37 +172,50 @@ def capture_frames(serial: str, width: int, height: int, fps: int, timeout_s: fl
         ) from exc
     align = rs.align(rs.stream.color)
     metadata = []
-    last = None
+    captured = []
     deadline = time.monotonic() + timeout_s
     try:
         while len(metadata) < 20 and time.monotonic() < deadline:
             remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
-            try:
-                frames = pipeline.wait_for_frames(min(1000, remaining_ms))
-            except Exception as exc:  # noqa: BLE001
-                raise D405CaptureError(f"D405 frame wait failed: {exc}") from exc
+            frames = wait_for_frames(pipeline, min(1000, remaining_ms))
+            if frames is None:
+                continue
             aligned = align.process(frames)
             color = aligned.get_color_frame()
             depth = aligned.get_depth_frame()
             if not color or not depth:
                 continue
             received_at_ns = time.time_ns()
-            metadata.append(
-                {
-                    "received_at_ns": received_at_ns,
-                    "frame_number": int(frames.get_frame_number()),
-                    "device_timestamp_ms": float(frames.get_timestamp()),
-                }
+            frame_metadata = {
+                "received_at_ns": received_at_ns,
+                "frame_number": int(color.get_frame_number()),
+                "device_timestamp_ms": float(color.get_timestamp()),
+            }
+            metadata.append(frame_metadata)
+            captured.append(
+                (
+                    frame_metadata,
+                    np.asanyarray(color.get_data()).copy(),
+                    np.asanyarray(depth.get_data()).copy(),
+                )
             )
-            last = (color, depth, received_at_ns)
-        quality = assess_stream(metadata, fps)
-        if last is None:
+            joint_sampler.poll()
+        if not captured:
             raise D405CaptureError("D405 produced no aligned RGB/depth frame")
-        color, depth, received_at_ns = last
-        color_rgb = np.asanyarray(color.get_data()).copy()
-        depth_m = np.asanyarray(depth.get_data()).astype(np.float32)
+        joints = joint_sampler.sample()
+        joint_age_ns = time.time_ns() - joints["received_at_ns"]
+        if not 0 <= joint_age_ns <= MAX_JOINT_AGE_NS:
+            raise D405CaptureError(
+                f"joint state age {joint_age_ns / 1e6:.1f}ms exceeds 500ms"
+            )
+        received_at_ns = captured[-1][0]["received_at_ns"]
+        frame_joint_delta_ns = abs(joints["received_at_ns"] - received_at_ns)
+        if frame_joint_delta_ns > MAX_FRAME_JOINT_DELTA_NS:
+            raise D405CaptureError(
+                f"D405/joint receive delta {frame_joint_delta_ns / 1e6:.1f}ms exceeds 500ms"
+            )
+        quality = assess_stream(metadata, fps)
         scale = profile.get_device().first_depth_sensor().get_depth_scale()
-        depth_m *= float(scale)
         intrinsics = color.profile.as_video_stream_profile().intrinsics
         camera = {
             "serial": serial,
@@ -195,7 +236,24 @@ def capture_frames(serial: str, width: int, height: int, fps: int, timeout_s: fl
                 1.0,
             ],
         }
-        return color_rgb, depth_m, camera, metadata, quality, received_at_ns
+        keyframes = [
+            (label, index, *captured[index])
+            for label, index in zip(
+                ("start", "middle", "end"), keyframe_indices(len(captured))
+            )
+        ]
+        return (
+            captured[-1][1],
+            captured[-1][2],
+            float(scale),
+            camera,
+            metadata,
+            quality,
+            received_at_ns,
+            joints,
+            frame_joint_delta_ns,
+            keyframes,
+        )
     finally:
         pipeline.stop()
 
@@ -213,22 +271,28 @@ def capture(serial: str, root: Path, width: int, height: int, fps: int, timeout_
     import numpy as np
 
     started_at_ns = time.time_ns()
-    color_rgb, depth_m, camera, metadata, stream, received_at_ns = capture_frames(
-        serial, width, height, fps, timeout_s
-    )
+    joint_sampler = JointStateSampler()
+    try:
+        (
+            color_rgb,
+            depth_raw,
+            depth_scale,
+            camera,
+            metadata,
+            stream,
+            received_at_ns,
+            joints,
+            frame_joint_delta_ns,
+            keyframes,
+        ) = capture_frames(serial, width, height, fps, timeout_s, joint_sampler)
+    finally:
+        joint_sampler.close()
+    depth_m = depth_raw.astype(np.float32)
+    depth_m *= depth_scale
     depth = depth_statistics(depth_m)
     if depth["valid_ratio"] < MIN_DEPTH_VALID_RATIO:
         raise D405CaptureError(
             f"D405 depth valid ratio {depth['valid_ratio']:.3f} is below {MIN_DEPTH_VALID_RATIO:.2f}"
-        )
-    joints = capture_joint_state()
-    joint_age_ns = time.time_ns() - joints["received_at_ns"]
-    if not 0 <= joint_age_ns <= MAX_JOINT_AGE_NS:
-        raise D405CaptureError(f"joint state age {joint_age_ns / 1e6:.1f}ms exceeds 500ms")
-    frame_joint_delta_ns = abs(joints["received_at_ns"] - received_at_ns)
-    if frame_joint_delta_ns > MAX_FRAME_JOINT_DELTA_NS:
-        raise D405CaptureError(
-            f"D405/joint receive delta {frame_joint_delta_ns / 1e6:.1f}ms exceeds 500ms"
         )
 
     frame_id = "d405-" + time.strftime("%Y%m%d-%H%M%S", time.localtime(received_at_ns / 1e9))
@@ -242,10 +306,52 @@ def capture(serial: str, root: Path, width: int, height: int, fps: int, timeout_
         depth_path = temporary / "depth.npy"
         camera_path = temporary / "camera_info.json"
         state_path = temporary / "state.json"
+        keyframes_path = temporary / "keyframes.json"
         if not cv2.imwrite(str(rgb_path), color_rgb[:, :, ::-1]):
             raise D405CaptureError("failed to write D405 rgb.png")
         np.save(depth_path, depth_m, allow_pickle=False)
         write_json(camera_path, camera)
+        keyframe_records = []
+        for label, index, frame_metadata, frame_rgb, frame_depth_raw in keyframes:
+            if label == "end":
+                frame_rgb_path = final / "rgb.png"
+                frame_depth_path = final / "depth.npy"
+            else:
+                frame_rgb_path = final / f"keyframe-{label}-rgb.png"
+                frame_depth_path = final / f"keyframe-{label}-depth.npy"
+                if not cv2.imwrite(
+                    str(temporary / frame_rgb_path.name), frame_rgb[:, :, ::-1]
+                ):
+                    raise D405CaptureError(
+                        f"failed to write D405 {label} keyframe RGB"
+                    )
+                frame_depth_m = frame_depth_raw.astype(np.float32)
+                frame_depth_m *= depth_scale
+                np.save(
+                    temporary / frame_depth_path.name,
+                    frame_depth_m,
+                    allow_pickle=False,
+                )
+            keyframe_records.append(
+                {
+                    "label": label,
+                    "capture_index": index,
+                    **frame_metadata,
+                    "rgb_path": str(frame_rgb_path),
+                    "depth_path": str(frame_depth_path),
+                    "depth_unit": "m",
+                }
+            )
+        write_json(
+            keyframes_path,
+            {
+                "schema_version": 1,
+                "frame_id": frame_id,
+                "selection": "first_middle_last",
+                "safe_for_motion_authorization": False,
+                "frames": keyframe_records,
+            },
+        )
         state = {
             "schema_version": 1,
             "frame_id": frame_id,
@@ -278,6 +384,8 @@ def capture(serial: str, root: Path, width: int, height: int, fps: int, timeout_
         "depth_path": str(final / "depth.npy"),
         "camera_info_path": str(final / "camera_info.json"),
         "state_path": str(final / "state.json"),
+        "keyframes_path": str(final / "keyframes.json"),
+        "keyframe_count": len(keyframes),
         "latest_path": str(root / "latest.json"),
         "depth_valid_ratio": depth["valid_ratio"],
         **stream,

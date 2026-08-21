@@ -40,7 +40,7 @@ destination, constraints and explicit success predicates:
 Validate it with:
 
 ```bash
-xr1-vision validate-proposal --proposal examples/pick_place_proposal.json
+bin/xr1 validate-proposal --proposal examples/pick_place_proposal.json
 ```
 
 Schema version 1 grasp files are still accepted and are normalised to version
@@ -55,7 +55,7 @@ supplies Cartesian coordinates, joint angles or a TCP orientation.
 
 ## ObservationBundle
 
-`xr1-vision bundle` reads one immutable `latest.json` and emits a single typed
+`bin/xr1 bundle` reads one immutable `latest.json` and emits a single typed
 bundle containing:
 
 - ZED RGB, aligned depth and camera-intrinsic artifact paths;
@@ -83,7 +83,7 @@ must name a minimal repair and may resume only at an evidence-producing stage;
 events cannot skip directly to physical actions. Replay a recorded event stream:
 
 ```bash
-xr1-vision replay \
+bin/xr1 replay \
   --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
 ```

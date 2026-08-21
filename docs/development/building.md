@@ -41,9 +41,10 @@ than written) and `items_after_test_module`.
 cargo build --release       # -> target/release/xr1-vision, 0 warnings
 ```
 
-The release profile is `strip`, `lto`, `codegen-units = 1`. Debug builds are
-fine for tests; use release on the robot, since IK runs a multi-seed
-damped-least-squares solve and the debug build is minutes slower per call.
+The release profile is `strip`, `lto`, `codegen-units = 1`. Production robot
+commands always enter through `bin/xr1`, which pins this Release binary and
+fails if it is missing. Debug planning has no robot CLI entry point; it is only
+for unit tests, developer-owned debugging and simulation.
 
 ## Tests
 
@@ -67,7 +68,7 @@ pretends to unit-test hardware.
 | `central_difference_recovers_the_measured_jacobian` | permuting signal rows/joint columns in the +/- fit |
 | `three_low_improvement_steps_stop_the_loop` | allowing a stalled servo to continue moving indefinitely |
 
-The final system check remains `xr1-vision plan` against a named saved frame. It
+The final system check remains `bin/xr1 plan` against a named saved frame. It
 exercises the installed URDF and full candidate pipeline without moving hardware;
 record its wall time and candidate counts when changing the search.
 

@@ -12,7 +12,7 @@ import grip_adapter
 def envelope(generated_at_ns=1_000_000_000):
     return {
         "ok": True,
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "tactile_grip_increment",
         "generated_at_ns": generated_at_ns,
         "expires_at_ns": 1_600_000_000,
@@ -23,6 +23,18 @@ def envelope(generated_at_ns=1_000_000_000):
         "target_close_fraction": 0.05,
         "direction": "close",
         "tactile_decision": "close_increment",
+        "d405_alignment": {
+            "target": {
+                "source_frame_id": "d405-target",
+                "signal": [100.0, 200.0, 0.2],
+                "tolerance": [5.0, 5.0, 0.01],
+            },
+            "sample": {
+                "frame_id": "d405-current",
+                "received_at_ns": 1_400_000_000,
+                "signal": [101.0, 198.0, 0.201],
+            },
+        },
     }
 
 
@@ -68,6 +80,33 @@ class DroppedCommandBoundary(FakeBoundary):
 class GripAdapterTest(unittest.TestCase):
     def setUp(self):
         FakeBoundary.instances.clear()
+
+    def test_close_requires_fresh_converged_d405_alignment(self):
+        missing = envelope()
+        del missing["d405_alignment"]
+        stale = envelope(generated_at_ns=5_000_000_000)
+        stale["expires_at_ns"] = 6_000_000_000
+        stale["d405_alignment"]["sample"]["received_at_ns"] = 1_000_000_000
+        wrong_camera = envelope()
+        wrong_camera["d405_alignment"]["sample"]["frame_id"] = "zed-current"
+        misaligned = envelope()
+        misaligned["d405_alignment"]["sample"]["signal"][0] = 106.0
+
+        for candidate, now_ns in (
+            (missing, 1_500_000_000),
+            (stale, 5_500_000_000),
+            (wrong_camera, 1_500_000_000),
+            (misaligned, 1_500_000_000),
+        ):
+            with self.subTest(candidate=candidate):
+                with self.assertRaisesRegex(grip_adapter.GripRefused, "D405 alignment"):
+                    grip_adapter.execute(
+                        candidate,
+                        True,
+                        boundary_factory=FakeBoundary,
+                        now_ns=now_ns,
+                    )
+                self.assertEqual(FakeBoundary.instances, [])
 
     def test_dry_run_validates_without_publishing(self):
         report = grip_adapter.execute(
@@ -119,6 +158,7 @@ class GripAdapterTest(unittest.TestCase):
                 "tactile_decision": "release_increment",
             }
         )
+        del release["d405_alignment"]
         grip_adapter.validate_envelope(release, now_ns=1_500_000_000)
         release["tactile_decision"] = "close_increment"
         with self.assertRaisesRegex(grip_adapter.GripRefused, "decision"):

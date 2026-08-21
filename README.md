@@ -11,22 +11,23 @@ themselves within ~100 ms. This workspace is everything *around* that: the
 perception and kinematics that decide where to reach, the thin Python layer that
 actually commands the arms, and the evidence ledger that says whether it worked.
 
-## Current status — 2026-08-20
+## Current status — 2026-08-21
 
 The harness now has a tested software path from typed hardware contracts and a
 registered task pack through bounded visual/tactile execution and policy
-promotion. That does **not** mean the robot is autonomous or self-improving yet:
-the live D405/pressure calibration, real evaluation data and automatic reset are
-still missing.
+promotion. Robot access and the D405 stream are live-validated. That does **not**
+mean the robot is autonomous or self-improving yet: D405 target/Jacobian and
+pressure calibration, real evaluation data and automatic reset are still
+missing.
 
 | Area | Current state |
 |---|---|
 | Robot-independent contracts | `harness-contracts` defines five hardware-independent ports plus versioned `RobotProfile` and `CalibrationManifest` contracts |
 | Task packaging | The yellow-block pick/place behavior lives in `task-packs/yellow-block-pick-place` and is selected through the task registry instead of being hard-coded into the core |
 | Runtime boundaries | Argument parsing, adapter protocol, evidence handling and action locking are isolated under `xr1-vision/src/support`; physical actions remain bounded, serialized and fail-closed |
-| Near-field/contact grasping | D405 observation, two-pad pressure assessment and the bounded close/hold/single-release loop are implemented and offline-tested; exact live USB mapping, thresholds and calibration are not yet recorded |
+| Near-field/contact grasping | The D405 sustained 20 aligned frames at 11.03 Hz on the robot; two-pad pressure assessment and the bounded close/hold/single-release loop are implemented, but pressure USB mapping and live target/Jacobian calibration are still missing |
 | Evaluation and promotion | `harness-evaluation` implements immutable episodes, a two-channel judge with abstention, frozen golden sets, policy lineage, baseline/challenger gates, shadow, canary, promotion and unconditional rollback |
-| Live readiness | Blocked by robot-host permission failure plus unfinished D405, pressure and visual-servo calibration; do not interpret passing software tests as permission to use `--go` |
+| Live readiness | SSH, controller, ZED, joint feedback and D405 capture work; pressure input and the current target/Jacobian calibration remain fail-closed, so passing software tests is not permission to use `--go` |
 
 There is currently **no trainer, no real-robot episode corpus, no real golden
 set or measured judge bias, and no automatic reset**. The repository implements
@@ -36,8 +37,8 @@ promoted; it does not yet implement "self-evolution." See
 and the live constraints in
 [`docs/operations/status.md`](docs/operations/status.md).
 
-Latest local verification: **155 Rust tests passed**, **24 Python tests ran
-(1 hardware-dependent test skipped)**, Clippy passed with warnings denied, and
+Latest local verification: **159 Rust tests passed**, **29 Python tests ran
+(2 hardware-dependent tests skipped)**, Clippy passed with warnings denied, and
 all documentation links resolved. These are offline/software checks only.
 
 ## Architecture and dependency direction
@@ -124,11 +125,11 @@ boundary. Business decisions stay in Rust.
 | File group | Responsibility | Depends on / called by |
 |---|---|---|
 | `astra_arm.py`, `xr1.py` | Joint feedback, rate-limited arm commands, URDF clamps, G2 gripper bring-up and operator commands | ROS 2 Jazzy `rclpy`, vendor topics/SDK; used directly and by motion adapters |
-| `vista_observe.py` | Synchronized ZED RGB/depth, intrinsics, joint state and image-time TF capture | `rclpy`, `sensor_msgs`, `tf2_ros`, OpenCV, NumPy; called by `xr1-vision observe` paths |
+| `vista_observe.py` | Synchronized ZED RGB/depth, intrinsics, joint state and image-time TF capture | `rclpy`, `sensor_msgs`, `tf2_ros`, OpenCV, NumPy; called by `bin/xr1 observe` paths |
 | `d405_observe.py` | Bounded aligned D405 RGB/depth capture with stream/freshness checks | `pyrealsense2`, NumPy, `rclpy`; called by D405 and grasp-loop commands |
 | `tactile_adapter.py` | Two-pad pressure capture, serial or user-space CH340/PyUSB transport, median/MAD evidence | Python stdlib and optional PyUSB; called by tactile and grasp-loop commands |
 | `motion_adapter.py`, `servo_adapter.py`, `grip_adapter.py` | Execute exactly one Rust-approved motion, microstep or jaw increment and return a bound JSON report | `astra_arm.py` or ROS gripper topics; called only after Rust safety approval; dry-run by default |
-| `pad_offset_measure.py` | Offline multi-pose pad/tool-offset measurement | NumPy and the built `xr1-vision fk` command; writes calibration evidence |
+| `pad_offset_measure.py` | Offline multi-pose pad/tool-offset measurement | NumPy and `bin/xr1 fk`; writes calibration evidence |
 | `xr1_cam.py` | Controls the external Mac recorder over SSH/SCP | `mac/` installation and daemon; used by experiment recording paths |
 | `test_*.py` | Offline adapter contract and refusal tests | Python `unittest`; hardware-dependent paths are injected or skipped |
 
@@ -258,35 +259,43 @@ python3 py/xr1.py pose            # joints, grippers, tcp
 python3 py/xr1.py bringup         # the G2 gripper driver is not a systemd unit
 bin/tf-frames                     # 52 frames, 6 of them zed_*, or something is dead
 cargo build --release             # -> target/release/xr1-vision
-export PATH="$PWD/target/release:$PATH"   # the commands below are that binary
-xr1-vision observe                # ZED snapshot + intrinsics + image-time TF
-xr1-vision bundle                 # one typed ZED/robot/capability observation
-xr1-vision validate-proposal --proposal examples/pick_place_proposal.json
-xr1-vision plan                   # default yellow-block semantic proposal -> grasp candidates
-xr1-vision plan --proposal examples/grasp_proposal.json
-xr1-vision plan --proposal examples/grasp_proposal.json --latest SAVED_LATEST_JSON
-xr1-vision replay --proposal examples/pick_place_proposal.json \
+bin/xr1 observe                    # ZED snapshot + intrinsics + image-time TF
+bin/xr1 bundle                     # one typed ZED/robot/capability observation
+bin/xr1 validate-proposal --proposal examples/pick_place_proposal.json
+bin/xr1 plan                       # immutable Release attempt receipt
+bin/xr1 plan --proposal examples/grasp_proposal.json
+bin/xr1 plan --proposal examples/grasp_proposal.json --latest SAVED_LATEST_JSON
+bin/xr1 replay --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
-xr1-vision fk J1 .. J7            # fingertip-pad FK, for hand-eye work
-xr1-vision sensor-status          # D405 / tactile capability report
-xr1-vision d405-observe           # fresh aligned RGB/depth + near-field target signal
-xr1-vision tactile-observe --config TACTILE_CONFIG
-xr1-vision tactile-assess --mode closure --config TACTILE_CONFIG --calibration TACTILE_CALIBRATION
-xr1-vision servo-pads --frame FRAME_DIR
-xr1-vision servo-observe --latest LATEST_JSON
-xr1-vision servo-calibrate --input PLUS_MINUS_SAMPLES_JSON
-xr1-vision servo-propose --input examples/servo_request.json --state STATE_JSON
-xr1-vision servo-propose --request CALIBRATED_REQUEST_JSON --state STATE_JSON \
+bin/xr1 fk J1 .. J7               # fingertip-pad FK, for hand-eye work
+bin/xr1 sensor-status             # D405 / tactile capability report
+bin/xr1 d405-observe              # fresh aligned RGB/depth + near-field target signal
+bin/xr1 tactile-observe --config TACTILE_CONFIG
+bin/xr1 tactile-assess --mode closure --config TACTILE_CONFIG --calibration TACTILE_CALIBRATION
+bin/xr1 servo-pads --frame FRAME_DIR
+bin/xr1 servo-observe --latest LATEST_JSON
+bin/xr1 servo-calibrate --input PLUS_MINUS_SAMPLES_JSON
+bin/xr1 servo-propose --input examples/servo_request.json --state STATE_JSON
+bin/xr1 servo-propose --request CALIBRATED_REQUEST_JSON --state STATE_JSON \
   > /tmp/servo-proposal.json
-xr1-vision servo-step --proposal /tmp/servo-proposal.json       # dry-run
-xr1-vision servo-step --proposal /tmp/servo-proposal.json --go  # exactly one microstep
-xr1-vision servo-reconcile --input RECONCILIATION_JSON
-xr1-vision servo-loop --calibration CALIBRATION_JSON             # fresh dry-run
-xr1-vision servo-loop --calibration CALIBRATION_JSON --go        # bounded live loop
-xr1-vision grasp-loop --tactile-config TACTILE_CONFIG \
+bin/xr1 servo-step --proposal /tmp/servo-proposal.json       # dry-run
+bin/xr1 servo-step --proposal /tmp/servo-proposal.json --go  # exactly one microstep
+bin/xr1 servo-reconcile --input RECONCILIATION_JSON
+bin/xr1 servo-loop --calibration CALIBRATION_JSON            # fresh dry-run
+bin/xr1 servo-loop --calibration CALIBRATION_JSON --go       # bounded live loop
+bin/xr1 grasp-loop --tactile-config TACTILE_CONFIG \
   --tactile-calibration TACTILE_CALIBRATION --d405-target D405_TARGET
 # Add --go only after the dry run passes; each jaw step is at most 0.05.
 ```
+
+From another machine, use one non-interactive SSH command and let the wrapper
+reuse the connection: `bin/xr1 --host astrabot@192.168.123.102 status`.
+
+Production robot operation accepts only `bin/xr1`, which pins Release. `plan`
+returns a short receipt and stores the full immutable attempt under
+`data/attempts/attempt_*/`; repeat inspection reads that attempt without
+replanning. The executor accepts only its `attempt_path`, never an arbitrary
+`plan.json`.
 
 Read [`docs/operations/status.md`](docs/operations/status.md) before moving the
 robot, and [`docs/operations/pitfalls.md`](docs/operations/pitfalls.md) before

@@ -16,7 +16,7 @@ Strict one-way layering. A layer may call downward, never upward:
 ```
 Agent      you, or an LLM        decides what to try next; writes a prediction first
   |
-Planner    xr1-vision plan       perception -> footprint -> grasp candidates -> IK
+Planner    bin/xr1 plan          perception -> footprint -> grasp candidates -> IK
   |
 Executor   py/xr1.py             one named motion at a time, with a return code
   |
@@ -29,6 +29,21 @@ Device     /opt/ros/astrabot     vendor binaries + ros2_control (not ours)
 the IK/collision gates, is deterministic, and depends on no model, prompt, or
 vision output. An agent may propose a pose; it may not widen a gate. Relaxing a
 gate requires a human saying so in the transcript, and an ADR.
+
+Production robot operations have exactly one agent entry point: `bin/xr1`.
+Agents must never invoke `target/debug/xr1-vision` or
+`target/release/xr1-vision` themselves. The wrapper pins Production to the
+Release binary and fails closed if it is absent. Debug planning has no robot CLI
+entry point; it is restricted to unit tests, developer debugging and simulation.
+
+Production planning is immutable per robot snapshot. The first result is saved
+under `data/attempts/attempt_*/`; another request with the same snapshot, joint
+state, image-time TF, URDF, calibration inputs, proposal, planner revision,
+safety policy and MoveIt inputs may only read that result. Any changed input
+creates a new attempt. Never re-run planning to retrieve logs.
+
+Remote operation is also one-shot: `bin/xr1 --host USER@HOST COMMAND ...`.
+Never open or maintain an interactive SSH shell for an agent task.
 
 ## 3. Language policy
 

@@ -172,7 +172,7 @@ impl<'a> GraspLoopSession<'a> {
             "at_ns": runtime::unix_time_ns()?,
             "sample": near_field
         }))?;
-        let mut d405_received_at_ns = near_field.sample.received_at_ns;
+        let mut d405_sample = near_field.sample.clone();
         let baseline = self.capture_tactile()?;
         let baseline_assessment = grasp_feedback::assess_baseline(
             &baseline,
@@ -229,12 +229,13 @@ impl<'a> GraspLoopSession<'a> {
                 }
             }
 
-            ensure_d405_fresh(d405_received_at_ns, runtime::unix_time_ns()?)?;
+            ensure_d405_fresh(d405_sample.received_at_ns, runtime::unix_time_ns()?)?;
 
             let envelope = make_envelope(
                 &self.config.side,
                 &current,
                 &assessment,
+                (&self.config.d405_target, &d405_sample),
                 &progress,
                 runtime::unix_time_ns()?,
                 self.config.tactile_calibration.max_age_ms,
@@ -355,7 +356,7 @@ impl<'a> GraspLoopSession<'a> {
                         Some("D405 target left the calibrated grasp tolerance after the jaw increment"),
                     );
                 }
-                d405_received_at_ns = near_field.sample.received_at_ns;
+                d405_sample = near_field.sample.clone();
                 current = match self.capture_tactile() {
                     Ok(observation) => observation,
                     Err(error) => {
@@ -558,10 +559,12 @@ fn make_envelope(
     side: &str,
     tactile: &TactileObservation,
     assessment: &TactileAssessment,
+    d405_alignment: (&ServoTarget, &perception::ServoSignalSample),
     progress: &GripProgress,
     generated_at_ns: u64,
     max_tactile_age_ms: f64,
 ) -> Result<serde_json::Value, String> {
+    let (d405_target, d405_sample) = d405_alignment;
     let (direction, delta) = match assessment.decision {
         TactileDecision::CloseIncrement => ("close", CLOSE_INCREMENT),
         TactileDecision::ReleaseIncrement => ("release", -CLOSE_INCREMENT),
@@ -583,7 +586,7 @@ fn make_envelope(
     }
     Ok(serde_json::json!({
         "ok": true,
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "tactile_grip_increment",
         "generated_at_ns": generated_at_ns,
         "expires_at_ns": expires_at_ns,
@@ -593,7 +596,11 @@ fn make_envelope(
         "previous_close_fraction": progress.close_fraction,
         "target_close_fraction": target,
         "direction": direction,
-        "tactile_decision": assessment.decision
+        "tactile_decision": assessment.decision,
+        "d405_alignment": {
+            "target": d405_target,
+            "sample": d405_sample
+        }
     }))
 }
 
@@ -683,12 +690,32 @@ mod tests {
         }
     }
 
+    fn d405_target() -> ServoTarget {
+        ServoTarget {
+            schema_version: 1,
+            source_frame_id: "d405-target".into(),
+            signal: [100.0, 200.0, 0.2],
+            tolerance: [5.0, 5.0, 0.01],
+        }
+    }
+
+    fn d405_sample() -> perception::ServoSignalSample {
+        perception::ServoSignalSample {
+            schema_version: 1,
+            frame_id: "d405-current".into(),
+            received_at_ns: 120,
+            joints_rad: Default::default(),
+            signal: [101.0, 198.0, 0.201],
+        }
+    }
+
     #[test]
     fn no_contact_authorizes_exactly_one_close_increment() {
         let envelope = make_envelope(
             "right",
             &observation(),
             &assessment(TactileDecision::CloseIncrement),
+            (&d405_target(), &d405_sample()),
             &GripProgress {
                 close_fraction: 0.20,
                 expected_position_mm: 672,
@@ -699,6 +726,10 @@ mod tests {
         .unwrap();
         assert_eq!(envelope["target_close_fraction"], 0.25);
         assert_eq!(envelope["tactile_sample_id"], "sample-1");
+        assert_eq!(
+            envelope["d405_alignment"]["sample"]["frame_id"],
+            "d405-current"
+        );
     }
 
     #[test]
@@ -707,6 +738,7 @@ mod tests {
             "right",
             &observation(),
             &assessment(TactileDecision::ReleaseIncrement),
+            (&d405_target(), &d405_sample()),
             &GripProgress {
                 close_fraction: 0.50,
                 expected_position_mm: 420,
@@ -726,6 +758,7 @@ mod tests {
                 "right",
                 &observation(),
                 &assessment(decision),
+                (&d405_target(), &d405_sample()),
                 &GripProgress {
                     close_fraction: 0.50,
                     expected_position_mm: 420,

@@ -9,20 +9,21 @@ ROS 2 Jazzy）上的 **AstraBot XR1** 人形机器人抓取栈。
 `Astrabot_*.service` 服务监管，服务退出后约 100 ms 会被重新拉起。本工作区负责其外围：
 感知与运动学决定抓取位置，薄 Python 层执行手臂/夹爪命令，证据账本记录动作是否成功。
 
-## 当前状态 — 2026-08-20
+## 当前状态 — 2026-08-21
 
 Harness 已具备一条经过软件测试的完整路径：从硬件无关契约、注册式任务包，到有界视觉/
-触觉执行，再到策略晋升。但这**不代表机器人已经自主运行或能够自我进化**：D405 和压力
-传感器的真机标定、真实评测数据以及自动复位仍未完成。
+触觉执行，再到策略晋升。机器人访问和 D405 数据流已通过真机验证，但这**不代表机器人已经
+自主运行或能够自我进化**：D405 目标/Jacobian、压力传感器标定、真实评测数据以及自动复位
+仍未完成。
 
 | 范围 | 当前状态 |
 |---|---|
 | 机器人无关契约 | `harness-contracts` 定义五个硬件无关端口，以及带版本的 `RobotProfile` 和 `CalibrationManifest` |
 | 任务封装 | 黄块抓取/放置已迁入 `task-packs/yellow-block-pick-place`，由任务注册表选择，不再硬编码在核心中 |
 | 运行边界 | 参数解析、适配器协议、证据处理和动作锁位于 `xr1-vision/src/support`；物理动作继续保持有界、串行和失败关闭 |
-| 近场/接触抓取 | D405 观测、双压力贴片评估，以及有界闭合/保持/单次释放闭环已实现并通过离线测试；真机 USB 映射、阈值和标定记录尚未完成 |
+| 近场/接触抓取 | D405 已在机器人上持续采集 20 帧、达到 11.03 Hz；双压力贴片评估和有界闭合/保持/单次释放闭环已实现，但压力 USB 映射及当前目标/Jacobian 标定仍缺失 |
 | 评测与晋升 | `harness-evaluation` 实现不可变 Episode、带弃权的双通道 Judge、冻结黄金集、策略血缘、基线/挑战者 Gate、Shadow、Canary、晋升和无条件回滚 |
-| 真机可用性 | 当前受机器人主机权限故障、D405/压力/视觉伺服标定未完成限制；软件测试通过不等于允许使用 `--go` |
+| 真机可用性 | SSH、控制器、ZED、关节反馈和 D405 采集可用；压力输入及当前目标/Jacobian 标定仍失败关闭，软件测试通过不等于允许使用 `--go` |
 
 当前**没有训练器、没有真实机器人 Episode 语料、没有真实黄金集或实测 Judge 偏差，也
 没有自动复位**。仓库实现并测试的是“判断外部产生的挑战策略能否晋升”的路径，不是
@@ -30,7 +31,7 @@ Harness 已具备一条经过软件测试的完整路径：从硬件无关契约
 [`docs/assessment/harness-step-5-evaluation.zh.md`](docs/assessment/harness-step-5-evaluation.zh.md)
 和真机约束 [`docs/operations/status.md`](docs/operations/status.md)。
 
-最近一次本地验证结果：**155 个 Rust 测试通过**，**运行 24 个 Python 测试（其中 1 个
+最近一次本地验证结果：**159 个 Rust 测试通过**，**运行 29 个 Python 测试（其中 2 个
 硬件相关测试跳过）**，Clippy 在禁止警告模式下通过，所有文档链接有效。这些仅是离线/
 软件检查。
 
@@ -114,11 +115,11 @@ profiles/*.json / 标定数据                 task-packs/yellow-block-pick-plac
 | 文件组 | 职责 | 依赖/调用者 |
 |---|---|---|
 | `astra_arm.py`、`xr1.py` | 关节反馈、限速手臂命令、URDF Clamp、G2 夹爪 Bring-up 和操作者命令 | ROS 2 Jazzy `rclpy`、厂商 Topic/SDK；供操作者与动作适配器调用 |
-| `vista_observe.py` | 同步采集 ZED RGB/深度、内参、关节状态和图像时刻 TF | `rclpy`、`sensor_msgs`、`tf2_ros`、OpenCV、NumPy；由 `xr1-vision observe` 路径调用 |
+| `vista_observe.py` | 同步采集 ZED RGB/深度、内参、关节状态和图像时刻 TF | `rclpy`、`sensor_msgs`、`tf2_ros`、OpenCV、NumPy；由 `bin/xr1 observe` 路径调用 |
 | `d405_observe.py` | 有界、对齐的 D405 RGB/深度采集，并检查流持续性和新鲜度 | `pyrealsense2`、NumPy、`rclpy`；由 D405 与抓取循环命令调用 |
 | `tactile_adapter.py` | 双压力贴片采集，支持串口或用户态 CH340/PyUSB，输出 Median/MAD 证据 | Python 标准库与可选 PyUSB；由触觉和抓取循环调用 |
 | `motion_adapter.py`、`servo_adapter.py`、`grip_adapter.py` | 只执行一次 Rust 批准的动作、微步或夹爪增量，并返回绑定后的 JSON 报告 | `astra_arm.py` 或 ROS 夹爪 Topic；必须先通过 Rust 安全 Gate，默认 Dry-run |
-| `pad_offset_measure.py` | 离线多姿态夹爪贴片/工具偏移测量 | NumPy 和已构建的 `xr1-vision fk`；生成标定证据 |
+| `pad_offset_measure.py` | 离线多姿态夹爪贴片/工具偏移测量 | NumPy 和 `bin/xr1 fk`；生成标定证据 |
 | `xr1_cam.py` | 通过 SSH/SCP 控制 Mac 外置相机录像器 | 依赖 `mac/` 安装与 Daemon；实验录像路径调用 |
 | `test_*.py` | 离线适配器契约与拒绝行为测试 | Python `unittest`；硬件路径通过注入替代或跳过 |
 
@@ -227,7 +228,7 @@ ROS 包内部目录：
 
 | 目录 | 职责 | 依赖/使用者 |
 |---|---|---|
-| `bin/` | `audit-deps`、`check-doc-links`、自动设置 ROS Domain 的 `home`、TF Frame 健康检查 | Shell、Cargo 元数据和已 Source 的 ROS 环境；开发/运维检查调用 |
+| `bin/` | 唯一生产入口 `xr1`、`audit-deps`、`check-doc-links`、自动设置 ROS Domain 的 `home`、TF Frame 健康检查 | Shell、Cargo 元数据和已 Source 的 ROS 环境；开发/运维检查调用 |
 | `mac/` | AVFoundation 录像器、Launch 配置和安装脚本 | macOS Swift/AVFoundation 与相机权限；由 `py/xr1_cam.py` 远程控制 |
 
 ## 运行方式
@@ -244,23 +245,27 @@ python3 py/xr1.py pose
 python3 py/xr1.py bringup
 bin/tf-frames
 cargo build --release
-export PATH="$PWD/target/release:$PATH"
-xr1-vision observe
-xr1-vision bundle
-xr1-vision validate-proposal --proposal examples/pick_place_proposal.json
-xr1-vision plan --proposal examples/grasp_proposal.json
-xr1-vision replay --proposal examples/pick_place_proposal.json \
+bin/xr1 observe
+bin/xr1 bundle
+bin/xr1 validate-proposal --proposal examples/pick_place_proposal.json
+bin/xr1 plan --proposal examples/grasp_proposal.json
+bin/xr1 replay --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
-xr1-vision sensor-status
-xr1-vision d405-observe
-xr1-vision tactile-observe --config TACTILE_CONFIG
-xr1-vision tactile-assess --mode closure \
+bin/xr1 sensor-status
+bin/xr1 d405-observe
+bin/xr1 tactile-observe --config TACTILE_CONFIG
+bin/xr1 tactile-assess --mode closure \
   --config TACTILE_CONFIG --calibration TACTILE_CALIBRATION
-xr1-vision servo-loop --calibration CALIBRATION_JSON
-xr1-vision grasp-loop --tactile-config TACTILE_CONFIG \
+bin/xr1 servo-loop --calibration CALIBRATION_JSON
+bin/xr1 grasp-loop --tactile-config TACTILE_CONFIG \
   --tactile-calibration TACTILE_CALIBRATION --d405-target D405_TARGET
 # Dry-run 通过且标定有效后才能添加 --go；每次关节/夹爪增量最大 0.05。
 ```
+
+生产真机只允许 `bin/xr1`，其内部固定使用 Release。命令只返回短 receipt，完整规划按机器人状态写入
+`data/attempts/attempt_*/`；同一状态的后续请求只读取该 attempt。执行器只接受 receipt 中的
+`attempt_path`，不接受任意 `plan.json`。从其他机器操作时使用
+`bin/xr1 --host astrabot@192.168.123.102 COMMAND ...`，不要保持交互式 SSH Shell。
 
 移动机器人前先阅读 [`docs/operations/status.md`](docs/operations/status.md)，相信任何单次读数
 前先阅读 [`docs/operations/pitfalls.md`](docs/operations/pitfalls.md)。多个会话共享同一台机器。
