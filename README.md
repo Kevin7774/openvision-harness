@@ -25,7 +25,7 @@ missing.
 | Robot-independent contracts | `harness-contracts` defines five hardware-independent ports plus versioned `RobotProfile` and `CalibrationManifest` contracts |
 | Task packaging | The yellow-block pick/place behavior lives in `task-packs/yellow-block-pick-place` and is selected through the task registry instead of being hard-coded into the core |
 | Runtime boundaries | Argument parsing, adapter protocol, evidence handling and action locking are isolated under `xr1-vision/src/support`; physical actions remain bounded, serialized and fail-closed |
-| Near-field/contact grasping | The D405 sustained 20 aligned frames at 11.03 Hz on the robot; two-pad pressure assessment and the bounded close/hold/single-release loop are implemented, but pressure USB mapping and live target/Jacobian calibration are still missing |
+| Near-field/contact grasping | The D405 sustained 20 aligned `848x480@15` frames at 16.25 Hz on the robot's USB 3.x path; two-pad pressure assessment and the bounded close/hold/single-release loop are implemented, but pressure USB mapping and live target/Jacobian calibration are still missing |
 | Evaluation and promotion | `harness-evaluation` implements immutable episodes, a two-channel judge with abstention, frozen golden sets, policy lineage, baseline/challenger gates, shadow, canary, promotion and unconditional rollback |
 | Live readiness | SSH, controller, ZED, joint feedback and D405 capture work; pressure input and the current target/Jacobian calibration remain fail-closed, so passing software tests is not permission to use `--go` |
 
@@ -325,10 +325,10 @@ believing any single reading. Several sessions share this one machine.
   request that requires that channel still fails closed. Two pressure patches
   do exist inside the gripper; their software boundary and deterministic
   contact policy are implemented separately from joint effort.
-- **Near-field hardware is not yet live-validated.** D405 capture, CH340/PyUSB
+- **The D405 stream is live-validated; contact execution is not.** CH340/PyUSB
   pressure capture and the bounded grasp loop are implemented, but the current
-  robot still needs its exact USB paths, frame fields, pad mapping, pressure
-  thresholds and D405 target/Jacobian measured before `--go` can pass.
+  robot still needs pressure frame fields, pad mapping, thresholds and a
+  measured D405 target/Jacobian before `--go` can pass.
 - **The bounded visual-servo orchestration is implemented, but the current 3×3
   Jacobian has not yet been re-measured and validated on live hardware.**
   `servo-loop` makes capture and reconciliation mandatory before another step,

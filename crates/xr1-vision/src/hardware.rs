@@ -71,13 +71,13 @@ pub fn inspect() -> Result<SensorStatus, String> {
     let serial = enumeration
         .as_deref()
         .and_then(d405_serial)
+        .or_else(python_d405_serial)
         .or_else(|| {
             d405_device
                 .as_ref()
                 .and_then(|path| read_trimmed(path.join("serial")).ok())
                 .filter(|value| !value.is_empty())
-        })
-        .or_else(python_d405_serial);
+        });
     let speed = d405_device.as_ref().and_then(|path| read_speed(path).ok());
     let sustained_stream_verified = serial
         .as_deref()

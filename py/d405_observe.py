@@ -16,6 +16,7 @@ import time
 
 DEFAULT_SERIAL = "262422270599"
 DEFAULT_ROOT = Path("/home/astrabot/workspace/data/sensors/d405")
+DEFAULT_FPS = 15
 MIN_DEPTH_VALID_RATIO = 0.50
 MAX_JOINT_AGE_NS = 500_000_000
 MAX_FRAME_JOINT_DELTA_NS = 500_000_000
@@ -402,11 +403,11 @@ def main() -> int:
     parser.add_argument("--output-root", default=str(DEFAULT_ROOT))
     parser.add_argument("--width", type=int, default=848)
     parser.add_argument("--height", type=int, default=480)
-    parser.add_argument("--fps", type=int, default=10)
+    parser.add_argument("--fps", type=int, default=DEFAULT_FPS)
     parser.add_argument("--timeout", type=float, default=8.0)
     args = parser.parse_args()
-    if (args.width, args.height, args.fps) != (848, 480, 10):
-        parser.error("only the previously exercised 848x480@10 profile is allowed")
+    if (args.width, args.height, args.fps) != (848, 480, DEFAULT_FPS):
+        parser.error("only the live-validated 848x480@15 profile is allowed")
     if not 3.0 <= args.timeout <= 20.0:
         parser.error("--timeout must be within 3..20 seconds")
     try:

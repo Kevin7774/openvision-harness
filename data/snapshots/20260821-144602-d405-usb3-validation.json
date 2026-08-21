@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "d405_usb3_profile_validation",
+  "captured_at": "2026-08-21T14:46:02+08:00",
+  "command": "bin/xr1 d405-observe --timeout 8",
+  "device": {
+    "model": "RealSense D405",
+    "serial": "262422270599",
+    "usb_speed_mbps": 5000,
+    "python_binding": "pyrealsense2 2.58.3.10794"
+  },
+  "capture": {
+    "ok": true,
+    "frame_id": "d405-20260821-144602-043800453-800311",
+    "width": 848,
+    "height": 480,
+    "requested_fps": 15,
+    "frame_count": 20,
+    "observed_fps": 16.247819042422712,
+    "maximum_gap_ms": 70.238195,
+    "depth_valid_ratio": 0.8681358097484276,
+    "frame_joint_delta_ms": 58.108373,
+    "wall_s": 7.106,
+    "sustained_stream_verified": true
+  },
+  "near_field_signal": {
+    "ok": false,
+    "error": "D405 needs exactly one reliable yellow target, found 4"
+  },
+  "motion_executed": false
+}
