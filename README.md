@@ -37,8 +37,8 @@ the current architecture in
 [`docs/architecture/overview.md`](docs/architecture/overview.md) and the live constraints in
 [`docs/operations/status.md`](docs/operations/status.md).
 
-Latest local verification: **164 Rust tests passed**, **30 Python tests ran
-(2 hardware-dependent tests skipped)**, Clippy passed with warnings denied, and
+Latest local verification: **164 Rust tests passed**, **33 Python tests ran
+(3 hardware-dependent tests skipped)**, Clippy passed with warnings denied, and
 all documentation links resolved. These are offline/software checks only.
 
 ## Architecture and dependency direction
@@ -125,10 +125,10 @@ boundary. Business decisions stay in Rust.
 | File group | Responsibility | Depends on / called by |
 |---|---|---|
 | `astra_arm.py`, `xr1.py` | Joint feedback, rate-limited arm commands, URDF clamps, G2 gripper bring-up and operator commands | ROS 2 Jazzy `rclpy`, vendor topics/SDK; used directly and by motion adapters |
-| `vista_observe.py` | Synchronized ZED RGB/depth, intrinsics, joint state and image-time TF capture | `rclpy`, `sensor_msgs`, `tf2_ros`, OpenCV, NumPy; called by `bin/xr1 observe` paths |
-| `d405_observe.py` | Bounded aligned D405 RGB/depth capture with stream/freshness checks | `pyrealsense2`, NumPy, `rclpy`; called by D405 and grasp-loop commands |
+| `vista_observe.py` | Synchronized ZED RGB/depth, intrinsics, joint state and image-time TF capture with stage timings | `rclpy`, `sensor_msgs`, `tf2_ros`, OpenCV, NumPy; called by `bin/xr1 observe` paths |
+| `d405_observe.py` | Bounded aligned D405 RGB/depth capture with stream/freshness checks and stage timings | `pyrealsense2`, NumPy, `rclpy`; called by D405 and grasp-loop commands |
 | `tactile_adapter.py` | Two-pad pressure capture, serial or user-space CH340/PyUSB transport, median/MAD evidence | Python stdlib and optional PyUSB; called by tactile and grasp-loop commands |
-| `motion_adapter.py`, `servo_adapter.py`, `grip_adapter.py` | Execute exactly one Rust-approved motion, microstep or jaw increment and return a bound JSON report | `astra_arm.py` or ROS gripper topics; called only after Rust safety approval; dry-run by default |
+| `motion_adapter.py`, `servo_adapter.py`, `grip_adapter.py` | Execute exactly one Rust-approved motion, microstep or jaw increment and return a bound JSON report; motion attempts also persist an execution receipt | `astra_arm.py` or ROS gripper topics; called only after Rust safety approval; dry-run by default |
 | `pad_offset_measure.py` | Offline multi-pose pad/tool-offset measurement | NumPy and `bin/xr1 fk`; writes calibration evidence |
 | `xr1_cam.py` | Controls the optional external Mac recorder over SSH/SCP | `mac/` installation and daemon; manual use only, never a harness gate |
 | `test_*.py` | Offline adapter contract and refusal tests | Python `unittest`; hardware-dependent paths are injected or skipped |
@@ -196,7 +196,9 @@ write a new dated record; consumers must not silently rewrite old evidence.
 | Second-level directory | Responsibility | Produced by / consumed by |
 |---|---|---|
 | `data/benchmarks/` | Dated IK and semantic-planner latency measurements | Benchmark runs; used for performance baselines, not safety authorization |
+| `data/executions/` | Immutable success/refusal receipts with observation frame, action outcome and stage timings | `motion_adapter.py`; used to reconcile commanded and achieved motion |
 | `data/experiments/` | Operator experiments, journals, before/after frames, hand-eye and servo measurements | `xr1.py`, calibration helpers and operators; referenced by architecture/ADR conclusions |
+| `data/sensors/` | Latest pointers and append-only event/observation evidence for near-field sensors | D405 and tactile capture boundaries; consumed by readiness and grasp loops |
 | `data/snapshots/` | Small dated diagnostic snapshots, including current robot-host permission failure evidence | Read-only diagnostic commands; referenced by `docs/operations/status.md` |
 | `data/vista_runs/` | Self-describing observation runs with RGB/depth/state/TF bundles | `vista_observe.py` and observation commands; consumed by perception regressions and audits |
 

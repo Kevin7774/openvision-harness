@@ -419,6 +419,7 @@ def capture(run_id: str, timeout_s: float) -> dict:
         "timings_ms": timings_ms,
     }
 
+    timings_ms["total"] = (time.monotonic_ns() - capture_started) / 1e6
     event = {
         "event": "observe",
         "frame_id": frame_id,
@@ -426,6 +427,7 @@ def capture(run_id: str, timeout_s: float) -> dict:
         "received_at_ns": received_at_ns,
         "rgb_path": result["rgb_path"],
         "state_path": result["state_path"],
+        "timings_ms": timings_ms,
     }
     events_path = run_dir / "events.jsonl"
     with events_path.open("a", encoding="utf-8") as file:
@@ -435,7 +437,6 @@ def capture(run_id: str, timeout_s: float) -> dict:
         os.fsync(file.fileno())
         fcntl.flock(file, fcntl.LOCK_UN)
 
-    timings_ms["total"] = (time.monotonic_ns() - capture_started) / 1e6
     latest_tmp = run_dir / f".latest-{os.getpid()}.json"
     write_json(latest_tmp, result)
     os.replace(latest_tmp, run_dir / "latest.json")

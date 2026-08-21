@@ -126,10 +126,10 @@ The semantic proposal and typed candidate schemas are specified in
 |---|---|
 | `xr1.py` | the robot API: `bringup`, `pose`, `look`, `grip`, `home`, `ready`, `wave`, `demo`, `rec`, `snap` |
 | `astra_arm.py` | the safety layer wrapping the vendor SDK (see below) |
-| `vista_observe.py` | read-only ZED snapshot: RGB, aligned depth, intrinsics, image-time TF, joints and optional gripper readings |
+| `vista_observe.py` | read-only ZED snapshot: RGB, aligned depth, intrinsics, image-time TF, joints, optional gripper readings and stage timings |
 | `xr1_cam.py` | manually drive the optional external recorder on the Mac at 192.168.123.138; never a harness gate |
 | `pad_offset_measure.py` | measure the gripper-pad pixel offset against `bin/xr1 fk` |
-| `motion_adapter.py` | accept one immutable Rust attempt, select a fully feasible candidate and execute one phase |
+| `motion_adapter.py` | accept one immutable Rust attempt, select a fully feasible candidate, execute one phase and persist its receipt |
 | `servo_adapter.py` | consume one approved Rust envelope and publish at most one joint microstep |
 | `mac/` | the recorder itself (Swift), installed on the Mac |
 

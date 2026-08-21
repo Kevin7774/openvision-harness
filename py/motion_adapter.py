@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import sys
 import time
 
 
@@ -21,6 +23,22 @@ ATTEMPT_FILES = (
     "diagnostics.json",
     "timings.json",
 )
+
+
+def persist_execution(report: dict) -> dict:
+    root = Path(os.environ.get("XR1_WORKSPACE_ROOT", "/home/astrabot/workspace"))
+    root = root / "data" / "executions"
+    root.mkdir(parents=True, exist_ok=True)
+    execution_id = f"{report['started_at_ns']}-{os.getpid()}"
+    path = root / f"{execution_id}.json"
+    report["execution_id"] = execution_id
+    report["receipt_path"] = str(path)
+    with path.open("x", encoding="utf-8") as file:
+        json.dump(report, file, ensure_ascii=False, allow_nan=False, indent=2)
+        file.write("\n")
+        file.flush()
+        os.fsync(file.fileno())
+    return report
 
 
 def load_plan(attempt: Path) -> dict:
@@ -95,40 +113,99 @@ def phase_joints(plan: dict, candidate: dict, phase: str, solution: dict) -> tup
 
 
 def execute(attempt: Path, phase: str, go: bool) -> dict:
+    started_at_ns = time.time_ns()
+    started = time.monotonic_ns()
+    timings_ms = {}
+    command_started = False
+    plan = None
+    candidate = None
     try:
-        plan = load_plan(attempt)
-        plan_path = attempt / "plan.json"
-        age = plan_age_seconds(plan, plan_path)
-        max_age = PHASE_MAX_AGE_S[phase]
-        if age < 0.0 or age > max_age:
-            raise ValueError(f"plan is stale ({age:.1f}s, allowed 0..{max_age:.0f}s)")
-        candidate = select_candidate(plan)
-        solution = phase_solution(candidate, phase)
-    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"REFUSED: {exc}") from exc
+        validation_started = time.monotonic_ns()
+        try:
+            plan = load_plan(attempt)
+            plan_path = attempt / "plan.json"
+            age = plan_age_seconds(plan, plan_path)
+            max_age = PHASE_MAX_AGE_S[phase]
+            if age < 0.0 or age > max_age:
+                raise ValueError(f"plan is stale ({age:.1f}s, allowed 0..{max_age:.0f}s)")
+            candidate = select_candidate(plan)
+            solution = phase_solution(candidate, phase)
+        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"REFUSED: {exc}") from exc
+        finally:
+            timings_ms["validation"] = (time.monotonic_ns() - validation_started) / 1e6
 
-    import astra_arm
+        module_started = time.monotonic_ns()
+        import astra_arm
+        timings_ms["module_load"] = (time.monotonic_ns() - module_started) / 1e6
 
-    planned_start, target = phase_joints(plan, candidate, phase, solution)
-    speed = 0.12 if phase in ("grasp", "return") else 0.20
-    robot = astra_arm.Robot()
-    try:
-        current = robot.joints()
-        drift = max(abs(current[name] - value) for name, value in planned_start.items())
-        if drift > 0.035:
-            raise SystemExit(f"REFUSED: joint state drift {drift:.4f}rad > 0.035rad")
-        robot.move(target, speed=speed, dry_run=not go)
-    finally:
-        robot.close()
-    return {
+        planned_start, target = phase_joints(plan, candidate, phase, solution)
+        speed = 0.12 if phase in ("grasp", "return") else 0.20
+        robot_started = time.monotonic_ns()
+        robot = astra_arm.Robot()
+        timings_ms["robot_init"] = (time.monotonic_ns() - robot_started) / 1e6
+        try:
+            state_started = time.monotonic_ns()
+            current = robot.joints()
+            drift = max(abs(current[name] - value) for name, value in planned_start.items())
+            if drift > 0.035:
+                raise SystemExit(f"REFUSED: joint state drift {drift:.4f}rad > 0.035rad")
+            timings_ms["state_check"] = (time.monotonic_ns() - state_started) / 1e6
+            action_started = time.monotonic_ns()
+            command_started = go
+            try:
+                reached = robot.move(target, speed=speed, dry_run=not go)
+            finally:
+                timings_ms["action"] = (time.monotonic_ns() - action_started) / 1e6
+        finally:
+            close_started = time.monotonic_ns()
+            robot.close()
+            timings_ms["robot_close"] = (time.monotonic_ns() - close_started) / 1e6
+    except (Exception, SystemExit, KeyboardInterrupt) as exc:
+        timings_ms["total"] = (time.monotonic_ns() - started) / 1e6
+        report = {
+            "schema_version": 1,
+            "event": "motion",
+            "ok": False,
+            "attempt_path": str(attempt),
+            "phase": phase,
+            "requested_execute": go,
+            "execution_status": "possibly_partial" if command_started else "not_executed",
+            "observation_frame_id": plan.get("observation_frame_id") if isinstance(plan, dict) else None,
+            "candidate_rank": candidate.get("rank") if isinstance(candidate, dict) else None,
+            "started_at_ns": started_at_ns,
+            "completed_at_ns": time.time_ns(),
+            "timings_ms": timings_ms,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        try:
+            persist_execution(report)
+        except Exception as receipt_error:
+            print(f"WARNING: could not persist motion failure: {receipt_error}", file=sys.stderr)
+        raise
+
+    timings_ms["total"] = (time.monotonic_ns() - started) / 1e6
+    return persist_execution({
+        "schema_version": 1,
+        "event": "motion",
         "ok": True,
         "executed": go,
+        "execution_status": "executed" if go else "dry_run",
+        "attempt_path": str(attempt),
         "phase": phase,
         "observation_frame_id": plan["observation_frame_id"],
         "candidate_rank": candidate["rank"],
         "plan_age_s": age,
         "joint_drift_rad": drift,
-    }
+        "speed_rad_s": speed,
+        "start_joints_rad": current,
+        "target_joints_rad": target,
+        "reached_joints_rad": reached,
+        "started_at_ns": started_at_ns,
+        "completed_at_ns": time.time_ns(),
+        "timings_ms": timings_ms,
+    })
 
 
 def main() -> int:

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
+import json
 import sys
 from pathlib import Path
+import tempfile
 import unittest
+from unittest import mock
 
 try:
     import numpy as np
@@ -68,6 +71,49 @@ class D405ObserveTest(unittest.TestCase):
         self.assertEqual(report["valid_pixels"], 2)
         self.assertEqual(report["valid_ratio"], 0.5)
         self.assertAlmostEqual(report["median_m"], 0.2)
+
+    @unittest.skipIf(np is None, "NumPy is not installed in this development Python")
+    def test_capture_persists_stage_timings(self):
+        class Sampler:
+            def close(self):
+                pass
+
+        rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+        depth = np.ones((2, 2), dtype=np.uint16)
+        metadata = {"received_at_ns": 1_000_000_000, "frame_number": 1}
+        captured = (
+            rgb,
+            depth,
+            0.001,
+            {"serial": "test", "width": 2, "height": 2},
+            [metadata],
+            {"frame_count": 20, "sustained_stream_verified": True},
+            metadata["received_at_ns"],
+            {"received_at_ns": metadata["received_at_ns"], "positions_rad": {"joint": 0.0}},
+            0,
+            [("end", 0, metadata, rgb, depth)],
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            d405_observe, "JointStateSampler", return_value=Sampler()
+        ), mock.patch.object(d405_observe, "capture_frames", return_value=captured):
+            result = d405_observe.capture("test", Path(directory), 848, 480, 15, 8.0)
+            event = json.loads((Path(directory) / "events.jsonl").read_text())
+
+        self.assertIn("capture_frames", result["timings_ms"])
+        self.assertEqual(event["timings_ms"], result["timings_ms"])
+
+        failed_capture = list(captured)
+        failed_capture[1] = np.zeros((2, 2), dtype=np.uint16)
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            d405_observe, "JointStateSampler", return_value=Sampler()
+        ), mock.patch.object(d405_observe, "capture_frames", return_value=failed_capture):
+            with self.assertRaisesRegex(d405_observe.D405CaptureError, "valid ratio"):
+                d405_observe.capture("test", Path(directory), 848, 480, 15, 8.0)
+            event = json.loads((Path(directory) / "events.jsonl").read_text())
+            self.assertFalse((Path(directory) / "latest.json").exists())
+
+        self.assertFalse(event["ok"])
+        self.assertIn("total", event["timings_ms"])
 
 
 if __name__ == "__main__":

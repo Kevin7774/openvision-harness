@@ -50,8 +50,7 @@ for unit tests, developer-owned debugging and simulation.
 
 ```bash
 cargo test --workspace
-python3 py/test_motion_adapter.py
-python3 py/test_servo_adapter.py
+python3 -m unittest discover -s py -p 'test_*.py'
 ```
 
 The suite contains measured perception regressions plus pure contract tests for

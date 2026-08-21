@@ -200,7 +200,9 @@ class XR1:
         # guard. Only the verification path needs TF, so don't pay for it.
         self._Buffer, self._TFListener = Buffer, TransformListener
         self.tf = None
-        self.spin(1.0)
+        deadline = time.monotonic() + 1.0
+        while any(value is None for value in self._grip_pos.values()) and time.monotonic() < deadline:
+            self._rclpy.spin_once(self.node, timeout_sec=0.01)
         self._log(f"grippers + neck attached ({time.time()-self.t0:.2f}s)")
 
     # --------------------------------------------------------------- plumbing

@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import time
+
+PROCESS_STARTED = time.monotonic_ns()
+
 import argparse
 import fcntl
 import json
@@ -11,7 +15,6 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-import time
 
 
 DEFAULT_SERIAL = "262422270599"
@@ -267,34 +270,74 @@ def write_json(path: Path, value: dict) -> None:
         os.fsync(file.fileno())
 
 
+def append_event(root: Path, value: dict) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "events.jsonl").open("a", encoding="utf-8") as file:
+        fcntl.flock(file, fcntl.LOCK_EX)
+        file.write(json.dumps(value, ensure_ascii=False, allow_nan=False) + "\n")
+        file.flush()
+        os.fsync(file.fileno())
+        fcntl.flock(file, fcntl.LOCK_UN)
+
+
 def capture(serial: str, root: Path, width: int, height: int, fps: int, timeout_s: float) -> dict:
+    capture_started = time.monotonic_ns()
+    timings_ms = {"module_load": (capture_started - PROCESS_STARTED) / 1e6}
+    imports_started = time.monotonic_ns()
     import cv2
     import numpy as np
+    timings_ms["imports"] = (time.monotonic_ns() - imports_started) / 1e6
 
     started_at_ns = time.time_ns()
+    sampler_started = time.monotonic_ns()
     joint_sampler = JointStateSampler()
+    timings_ms["joint_sampler_init"] = (time.monotonic_ns() - sampler_started) / 1e6
     try:
-        (
-            color_rgb,
-            depth_raw,
-            depth_scale,
-            camera,
-            metadata,
-            stream,
-            received_at_ns,
-            joints,
-            frame_joint_delta_ns,
-            keyframes,
-        ) = capture_frames(serial, width, height, fps, timeout_s, joint_sampler)
+        frames_started = time.monotonic_ns()
+        try:
+            (
+                color_rgb,
+                depth_raw,
+                depth_scale,
+                camera,
+                metadata,
+                stream,
+                received_at_ns,
+                joints,
+                frame_joint_delta_ns,
+                keyframes,
+            ) = capture_frames(serial, width, height, fps, timeout_s, joint_sampler)
+        finally:
+            timings_ms["capture_frames"] = (time.monotonic_ns() - frames_started) / 1e6
     finally:
+        close_started = time.monotonic_ns()
         joint_sampler.close()
-    depth_m = depth_raw.astype(np.float32)
-    depth_m *= depth_scale
-    depth = depth_statistics(depth_m)
-    if depth["valid_ratio"] < MIN_DEPTH_VALID_RATIO:
-        raise D405CaptureError(
-            f"D405 depth valid ratio {depth['valid_ratio']:.3f} is below {MIN_DEPTH_VALID_RATIO:.2f}"
+        timings_ms["joint_sampler_close"] = (time.monotonic_ns() - close_started) / 1e6
+
+    process_started = time.monotonic_ns()
+    try:
+        depth_m = depth_raw.astype(np.float32)
+        depth_m *= depth_scale
+        depth = depth_statistics(depth_m)
+        if depth["valid_ratio"] < MIN_DEPTH_VALID_RATIO:
+            raise D405CaptureError(
+                f"D405 depth valid ratio {depth['valid_ratio']:.3f} is below {MIN_DEPTH_VALID_RATIO:.2f}"
+            )
+    except Exception as exc:
+        timings_ms["process"] = (time.monotonic_ns() - process_started) / 1e6
+        timings_ms["total"] = (time.monotonic_ns() - capture_started) / 1e6
+        append_event(
+            root,
+            {
+                "event": "d405_observe",
+                "ok": False,
+                "at_ns": time.time_ns(),
+                "error": str(exc),
+                "timings_ms": timings_ms,
+            },
         )
+        raise
+    timings_ms["process"] = (time.monotonic_ns() - process_started) / 1e6
 
     frame_id = "d405-" + time.strftime("%Y%m%d-%H%M%S", time.localtime(received_at_ns / 1e9))
     frame_id += f"-{received_at_ns % 1_000_000_000:09d}-{os.getpid()}"
@@ -302,6 +345,7 @@ def capture(serial: str, root: Path, width: int, height: int, fps: int, timeout_
     observations.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".observe-", dir=observations))
     final = observations / frame_id
+    persist_started = time.monotonic_ns()
     try:
         rgb_path = temporary / "rgb.png"
         depth_path = temporary / "depth.npy"
@@ -371,6 +415,8 @@ def capture(serial: str, root: Path, width: int, height: int, fps: int, timeout_
     except Exception:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+    timings_ms["persist"] = (time.monotonic_ns() - persist_started) / 1e6
+    timings_ms["total"] = (time.monotonic_ns() - capture_started) / 1e6
 
     result = {
         "ok": True,
@@ -389,11 +435,23 @@ def capture(serial: str, root: Path, width: int, height: int, fps: int, timeout_
         "keyframe_count": len(keyframes),
         "latest_path": str(root / "latest.json"),
         "depth_valid_ratio": depth["valid_ratio"],
+        "timings_ms": timings_ms,
         **stream,
     }
     latest_tmp = root / f".latest-{os.getpid()}.json"
     write_json(latest_tmp, result)
     os.replace(latest_tmp, root / "latest.json")
+    append_event(
+        root,
+        {
+            "event": "d405_observe",
+            "ok": True,
+            "frame_id": frame_id,
+            "received_at_ns": received_at_ns,
+            "depth_valid_ratio": depth["valid_ratio"],
+            "timings_ms": timings_ms,
+        },
+    )
     return result
 
 
