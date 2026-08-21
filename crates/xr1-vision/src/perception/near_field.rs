@@ -6,7 +6,8 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-const MIN_TARGET_PIXELS: usize = 40;
+// Empty-table frame d405-20260821-195935-890001830-1788400 had a 45-pixel false positive.
+const MIN_TARGET_PIXELS: usize = 100;
 const MIN_D405_DEPTH_M: f64 = 0.03;
 const MAX_D405_DEPTH_M: f64 = 1.00;
 const EXPECTED_D405_SERIAL: &str = "262422270599";
@@ -112,20 +113,28 @@ pub fn observe(latest_path: &Path) -> Result<NearFieldSignalObservation, String>
     let mut components = yellow::components(&rgb)
         .into_iter()
         .filter(|component| component.len() >= MIN_TARGET_PIXELS)
+        .filter_map(|component| {
+            let depths = component
+                .iter()
+                .filter_map(|index| {
+                    let value = f64::from(depth_image[*index]);
+                    (value.is_finite() && (MIN_D405_DEPTH_M..=MAX_D405_DEPTH_M).contains(&value))
+                        .then_some(value)
+                })
+                .collect::<Vec<_>>();
+            (depths.len() * 2 >= component.len()).then_some((component, depths))
+        })
         .collect::<Vec<_>>();
+    if components.is_empty() {
+        return Err("D405 has no reliable yellow target in the near-field depth range".into());
+    }
     if components.len() != 1 {
         return Err(format!(
             "D405 needs exactly one reliable yellow target, found {}",
             components.len()
         ));
     }
-    let target_pixels = components.remove(0);
-    if target_pixels.len() < MIN_TARGET_PIXELS {
-        return Err(format!(
-            "D405 yellow target is unreliable: {} pixels",
-            target_pixels.len()
-        ));
-    }
+    let (target_pixels, target_depths) = components.remove(0);
     let target_u = median(
         target_pixels
             .iter()
@@ -138,21 +147,6 @@ pub fn observe(latest_path: &Path) -> Result<NearFieldSignalObservation, String>
             .map(|index| (index / camera.width) as f64)
             .collect(),
     );
-    let target_depths = target_pixels
-        .iter()
-        .filter_map(|index| {
-            let value = f64::from(depth_image[*index]);
-            (value.is_finite() && (MIN_D405_DEPTH_M..=MAX_D405_DEPTH_M).contains(&value))
-                .then_some(value)
-        })
-        .collect::<Vec<_>>();
-    if target_depths.len() * 2 < target_pixels.len() {
-        return Err(format!(
-            "D405 yellow target has only {}/{} valid depth pixels",
-            target_depths.len(),
-            target_pixels.len()
-        ));
-    }
     let target_depth_valid_pixels = target_depths.len();
     let target_depth_m = median(target_depths);
     let joints_rad = state
@@ -201,6 +195,7 @@ fn median(mut values: Vec<f64>) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn near_field_depth_bounds_cover_d405_working_range() {
@@ -214,5 +209,67 @@ mod tests {
         assert!(median(Vec::new()).is_nan());
         assert_eq!(median(vec![3.0, 1.0, 2.0]), 2.0);
         assert_eq!(median(vec![1.0, 3.0]), 2.0);
+    }
+
+    #[test]
+    fn background_color_components_without_near_depth_are_not_targets() {
+        let frame = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/sensors/d405/observations/d405-20260821-132928-181071806-572573");
+        let latest_path = std::env::temp_dir().join(format!(
+            "xr1-d405-background-regression-{}.json",
+            std::process::id()
+        ));
+        let latest = serde_json::json!({
+            "frame_id": "d405-20260821-132928-181071806-572573",
+            "serial": EXPECTED_D405_SERIAL,
+            "sensor_stamp_ns": 1787290168181071806_u64,
+            "received_at_ns": 1787290168181071806_u64,
+            "rgb_path": frame.join("rgb.png"),
+            "depth_path": frame.join("depth.npy"),
+            "camera_info_path": frame.join("camera_info.json"),
+            "state_path": frame.join("state.json"),
+            "depth_valid_ratio": 0.8704205974842767,
+            "sustained_stream_verified": true,
+        });
+        fs::write(&latest_path, serde_json::to_vec(&latest).unwrap()).unwrap();
+
+        let error = observe(&latest_path).unwrap_err();
+        fs::remove_file(latest_path).unwrap();
+
+        assert_eq!(
+            error,
+            "D405 has no reliable yellow target in the near-field depth range"
+        );
+    }
+
+    #[test]
+    fn tiny_dim_component_is_not_a_reliable_near_field_target() {
+        let frame = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/sensors/d405/observations/d405-20260821-195935-890001830-1788400");
+        let latest_path = std::env::temp_dir().join(format!(
+            "xr1-d405-tiny-component-regression-{}.json",
+            std::process::id()
+        ));
+        let latest = serde_json::json!({
+            "frame_id": "d405-20260821-195935-890001830-1788400",
+            "serial": EXPECTED_D405_SERIAL,
+            "sensor_stamp_ns": 1787313575890001830_u64,
+            "received_at_ns": 1787313575890001830_u64,
+            "rgb_path": frame.join("rgb.png"),
+            "depth_path": frame.join("depth.npy"),
+            "camera_info_path": frame.join("camera_info.json"),
+            "state_path": frame.join("state.json"),
+            "depth_valid_ratio": 0.8283854166666667,
+            "sustained_stream_verified": true,
+        });
+        fs::write(&latest_path, serde_json::to_vec(&latest).unwrap()).unwrap();
+
+        let error = observe(&latest_path).unwrap_err();
+        fs::remove_file(latest_path).unwrap();
+
+        assert_eq!(
+            error,
+            "D405 has no reliable yellow target in the near-field depth range"
+        );
     }
 }

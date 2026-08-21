@@ -61,14 +61,14 @@ planning does not publish to hardware.
 | `observation.rs` | unified ZED artifact, joint, TF, gripper and sensor-capability bundle |
 | `hardware.rs` | read-only D405 and tactile capability discovery; no task policy |
 | `cli.rs` | command dispatch and stable JSON boundaries |
-| `runtime.rs` | workspace paths and the ROS-initialised Python process boundary |
+| `runtime.rs` | workspace paths and the Python process boundary; `bin/xr1` sources ROS base once, then adapters source only the robot overlay with FastDDS UDPv4 |
 | `experiment.rs` | experiment lifecycle and report persistence |
 | `main.rs` | process exit code only |
 
 Commands:
 
 ```
-bin/xr1 preflight                       py/xr1.py pose + py/xr1_cam.py doctor
+bin/xr1 preflight                       py/xr1.py pose
 bin/xr1 observe                         py/vista_observe.py -> data/vista_runs/<run>/latest.json
 bin/xr1 bundle [--latest FILE]          unified immutable observation contract
 bin/xr1 validate-proposal --proposal P  validate/upgrade TaskProposal v2
@@ -93,6 +93,9 @@ bin/xr1 grasp-loop ... [--go]           D405/tactile bounded jaw closure
 bin/xr1 begin --purpose TEXT            open a numbered experiment
 bin/xr1 note --section NAME --text TEXT  append to its report
 bin/xr1 grip --side S --state open|close
+bin/xr1 ready --side right               MOVE right arm to measured planning pose
+bin/xr1 motion --attempt A --phase P [--go]
+                                        dry-run/execute one immutable plan phase
 bin/xr1 end --status SUCCESS|FAILED
 bin/xr1 status
 ```
@@ -121,10 +124,10 @@ The semantic proposal and typed candidate schemas are specified in
 
 | File | Role |
 |---|---|
-| `xr1.py` | the robot API: `bringup`, `pose`, `look`, `grip`, `home`, `wave`, `demo`, `rec`, `snap` |
+| `xr1.py` | the robot API: `bringup`, `pose`, `look`, `grip`, `home`, `ready`, `wave`, `demo`, `rec`, `snap` |
 | `astra_arm.py` | the safety layer wrapping the vendor SDK (see below) |
 | `vista_observe.py` | read-only ZED snapshot: RGB, aligned depth, intrinsics, image-time TF, joints and optional gripper readings |
-| `xr1_cam.py` | drive the external recorder on the Mac at 192.168.123.138 |
+| `xr1_cam.py` | manually drive the optional external recorder on the Mac at 192.168.123.138; never a harness gate |
 | `pad_offset_measure.py` | measure the gripper-pad pixel offset against `bin/xr1 fk` |
 | `motion_adapter.py` | accept one immutable Rust attempt, select a fully feasible candidate and execute one phase |
 | `servo_adapter.py` | consume one approved Rust envelope and publish at most one joint microstep |

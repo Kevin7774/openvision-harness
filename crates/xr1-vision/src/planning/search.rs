@@ -49,12 +49,22 @@ pub(super) fn generate_candidates(
     if orientations.is_empty() {
         return Err("object geometry produced no horizontal grasp orientations".into());
     }
-    let mut candidates = APPROACH_CLEARANCES_M
-        .into_iter()
-        .map(|clearance| {
-            candidate_for_clearance(chain, names, current, object, &orientations, clearance)
-        })
-        .collect::<Vec<_>>();
+    let mut candidates = std::thread::scope(|scope| {
+        let orientations = &orientations;
+        APPROACH_CLEARANCES_M
+            .map(|clearance| {
+                scope.spawn(move || {
+                    candidate_for_clearance(chain, names, current, object, orientations, clearance)
+                })
+            })
+            .into_iter()
+            .map(|worker| {
+                worker
+                    .join()
+                    .map_err(|_| "planner clearance worker panicked".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })?;
     candidates.sort_by(|left, right| {
         left.score
             .unwrap_or(f64::INFINITY)

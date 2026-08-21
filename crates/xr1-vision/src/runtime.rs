@@ -94,9 +94,22 @@ impl RuntimePaths {
     }
 
     fn python_command(&self, script: &str, args: &[&str]) -> Command {
+        self.python_command_for_env(
+            script,
+            args,
+            std::env::var("XR1_ROS_BASE_READY").as_deref() == Ok("1"),
+        )
+    }
+
+    fn python_command_for_env(&self, script: &str, args: &[&str], ros_base_ready: bool) -> Command {
         let script_path = self.scripts_root().join(script);
+        let setup = if ros_base_ready {
+            "source /opt/ros/astrabot/local_setup.bash"
+        } else {
+            "source /opt/ros/jazzy/setup.bash && source /opt/ros/astrabot/setup.bash"
+        };
         let mut command = format!(
-            "source /opt/ros/jazzy/setup.bash && source /opt/ros/astrabot/setup.bash && exec python3 {}",
+            "{setup} && exec python3 {}",
             shell_quote(&script_path.to_string_lossy())
         );
         for arg in args {
@@ -105,10 +118,11 @@ impl RuntimePaths {
         }
         let mut process = Command::new("/bin/bash");
         process
-            .args(["-lc", &command])
+            .args([if ros_base_ready { "-c" } else { "-lc" }, &command])
             .current_dir(self.scripts_root())
             .env("ROS_DOMAIN_ID", "12")
             .env("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
+            .env("FASTDDS_BUILTIN_TRANSPORTS", "UDPv4")
             .stdin(Stdio::null());
         process
     }
@@ -144,5 +158,31 @@ mod tests {
         assert_eq!(paths.arm_urdf(), Path::new("/tmp/robot.urdf"));
         assert_eq!(paths.moveit_validator(), Path::new("/tmp/validator"));
         assert_eq!(paths.moveit_srdf(), Path::new("/tmp/robot.srdf"));
+    }
+
+    #[test]
+    fn prepared_ros_base_skips_duplicate_base_setup() {
+        let paths = RuntimePaths {
+            workspace_root: PathBuf::from("/tmp/xr1"),
+            arm_urdf: PathBuf::from("/tmp/robot.urdf"),
+            moveit_validator: PathBuf::from("/tmp/validator"),
+            moveit_srdf: PathBuf::from("/tmp/robot.srdf"),
+        };
+
+        let command = paths.python_command_for_env("tool.py", &["--flag", "value"], true);
+
+        assert_eq!(command.get_program(), "/bin/bash");
+        let args = command.get_args().collect::<Vec<_>>();
+        assert_eq!(args[0], "-c");
+        assert!(args[1]
+            .to_string_lossy()
+            .starts_with("source /opt/ros/astrabot/local_setup.bash && exec python3"));
+        assert_eq!(
+            command
+                .get_envs()
+                .find(|(name, _)| *name == "FASTDDS_BUILTIN_TRANSPORTS")
+                .and_then(|(_, value)| value),
+            Some(std::ffi::OsStr::new("UDPv4"))
+        );
     }
 }

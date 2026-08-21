@@ -86,6 +86,14 @@ def phase_solution(candidate: dict, phase: str) -> dict:
     return solution
 
 
+def phase_joints(plan: dict, candidate: dict, phase: str, solution: dict) -> tuple[dict, dict]:
+    if phase == "approach":
+        return plan["current_joints_rad"], solution["joints_rad"]
+    if phase == "return":
+        return candidate["grasp_ik"]["joints_rad"], solution["joints_rad"]
+    return candidate["approach_ik"]["joints_rad"], solution["joints_rad"]
+
+
 def execute(attempt: Path, phase: str, go: bool) -> dict:
     try:
         plan = load_plan(attempt)
@@ -101,11 +109,7 @@ def execute(attempt: Path, phase: str, go: bool) -> dict:
 
     import astra_arm
 
-    planned_start = (
-        plan["current_joints_rad"]
-        if phase == "approach"
-        else candidate["approach_ik"]["joints_rad"]
-    )
+    planned_start, target = phase_joints(plan, candidate, phase, solution)
     speed = 0.12 if phase in ("grasp", "return") else 0.20
     robot = astra_arm.Robot()
     try:
@@ -113,7 +117,6 @@ def execute(attempt: Path, phase: str, go: bool) -> dict:
         drift = max(abs(current[name] - value) for name, value in planned_start.items())
         if drift > 0.035:
             raise SystemExit(f"REFUSED: joint state drift {drift:.4f}rad > 0.035rad")
-        target = plan["current_joints_rad"] if phase == "return" else solution["joints_rad"]
         robot.move(target, speed=speed, dry_run=not go)
     finally:
         robot.close()

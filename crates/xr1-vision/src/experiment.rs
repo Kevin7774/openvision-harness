@@ -19,8 +19,6 @@ impl ExperimentJournal {
         fs::create_dir_all(self.harness_dir()).map_err(|error| error.to_string())?;
         let number = self.next_experiment()?;
         let id = format!("{number:02}");
-        let clip = format!("experiment_{id}_full");
-        self.runtime.run_python("xr1_cam.py", &["start", &clip])?;
 
         let report = self.harness_dir().join(format!("experiment_{id}.md"));
         let parent = if number > 1 {
@@ -29,11 +27,11 @@ impl ExperimentJournal {
             "NONE".into()
         };
         let initial = format!(
-            "# Experiment {id}\n\nVideo: `{clip}.mov`\n\nParent Experiment: {parent}\n\nPurpose:\n{purpose}\n\nObservation:\n\nHypothesis:\n\nPrediction:\n\nAction:\n\nPost Observation:\n\nPrediction Match:\n\nError:\n\nMinimal Repair:\n\nMemory Update:\n\nNext Hypothesis:\n"
+            "# Experiment {id}\n\nParent Experiment: {parent}\n\nPurpose:\n{purpose}\n\nImage Evidence (ZED/D405):\n- Before:\n- Grasp:\n- After:\n\nObservation:\n\nHypothesis:\n\nPrediction:\n\nAction:\n\nPost Observation:\n\nPrediction Match:\n\nError:\n\nMinimal Repair:\n\nMemory Update:\n\nNext Hypothesis:\n"
         );
         fs::write(report, initial).map_err(|error| error.to_string())?;
         fs::write(self.active_path(), format!("{id}\n")).map_err(|error| error.to_string())?;
-        println!("{{\"ok\":true,\"experiment\":\"{id}\",\"video\":\"{clip}.mov\"}}");
+        println!("{{\"ok\":true,\"experiment\":\"{id}\"}}");
         Ok(())
     }
 
@@ -58,7 +56,6 @@ impl ExperimentJournal {
         if !matches!(result, "SUCCESS" | "FAILED") {
             return Err("status must be SUCCESS or FAILED".into());
         }
-        self.runtime.run_python("xr1_cam.py", &["stop"])?;
         self.append_report(&format!("\nSTATUS: {result}"))?;
         fs::remove_file(self.active_path()).map_err(|error| error.to_string())?;
         println!("{{\"ok\":true,\"experiment\":\"{id}\",\"status\":\"{result}\"}}");

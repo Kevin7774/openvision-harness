@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import time
+
+PROCESS_STARTED = time.monotonic_ns()
+
 import argparse
 import fcntl
 import hashlib
@@ -15,7 +19,8 @@ import shutil
 import sys
 import tempfile
 import threading
-import time
+
+os.environ.setdefault("FASTDDS_BUILTIN_TRANSPORTS", "UDPv4")
 
 import cv2
 import numpy as np
@@ -53,6 +58,10 @@ class ObserveNode(Node):
         super().__init__("vista_observe")
         self.latest = {}
         self.received_at_ns = {}
+        self.received_counts = {}
+        self.first_received_at_ns = {}
+        self.first_sensor_stamp_ns = {}
+        self.last_sensor_stamp_ns = {}
         qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -81,8 +90,15 @@ class ObserveNode(Node):
 
     def _callback(self, name):
         def receive(msg) -> None:
+            received_at_ns = time.time_ns()
             self.latest[name] = msg
-            self.received_at_ns[name] = time.time_ns()
+            self.received_at_ns[name] = received_at_ns
+            self.received_counts[name] = self.received_counts.get(name, 0) + 1
+            self.first_received_at_ns.setdefault(name, received_at_ns)
+            if hasattr(msg, "header"):
+                sensor_stamp_ns = stamp_ns(msg)
+                self.first_sensor_stamp_ns.setdefault(name, sensor_stamp_ns)
+                self.last_sensor_stamp_ns[name] = sensor_stamp_ns
 
         return receive
 
@@ -90,6 +106,15 @@ class ObserveNode(Node):
 def finite_or_none(value):
     value = float(value)
     return value if math.isfinite(value) else None
+
+
+def received_fps(node: ObserveNode, name: str):
+    count = node.received_counts.get(name, 0)
+    elapsed_ns = (
+        node.last_sensor_stamp_ns.get(name, 0)
+        - node.first_sensor_stamp_ns.get(name, 0)
+    )
+    return (count - 1) * 1e9 / elapsed_ns if count > 1 and elapsed_ns > 0 else None
 
 
 def decode_rgb(msg: Image) -> np.ndarray:
@@ -254,16 +279,22 @@ def capture(run_id: str, timeout_s: float) -> dict:
     if not RUN_ID_RE.fullmatch(run_id):
         raise ValueError("run-id must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
+    capture_started_at_ns = time.time_ns()
+    capture_started = time.monotonic_ns()
     rclpy.init()
+    rclpy_initialized = time.monotonic_ns()
     node = ObserveNode()
+    node_initialized = time.monotonic_ns()
     try:
         rgb, depth, camera_info, joint, transform = wait_for_observation(node, timeout_s)
     finally:
         node.destroy_node()
         rclpy.shutdown()
+    observation_ready = time.monotonic_ns()
 
     rgb_image = decode_rgb(rgb)
     depth_image = decode_depth(depth)
+    decoded = time.monotonic_ns()
     rgb_stamp_ns = stamp_ns(rgb)
     depth_stamp_ns = stamp_ns(depth)
     received_at_ns = max(
@@ -276,6 +307,7 @@ def capture(run_id: str, timeout_s: float) -> dict:
     observations_dir.mkdir(parents=True, exist_ok=True)
     temporary_dir = Path(tempfile.mkdtemp(prefix=".observe-", dir=observations_dir))
     final_dir = observations_dir / frame_id
+    persist_started = time.monotonic_ns()
     try:
         rgb_path = temporary_dir / "rgb.png"
         depth_path = temporary_dir / "depth.npy"
@@ -345,6 +377,27 @@ def capture(run_id: str, timeout_s: float) -> dict:
     except Exception:
         shutil.rmtree(temporary_dir, ignore_errors=True)
         raise
+    persisted = time.monotonic_ns()
+
+    camera = {
+        "rgb_received": node.received_counts.get("rgb", 0),
+        "depth_received": node.received_counts.get("depth", 0),
+        "camera_info_received": node.received_counts.get("camera_info", 0),
+        "rgb_received_fps": received_fps(node, "rgb"),
+        "depth_received_fps": received_fps(node, "depth"),
+        "first_rgb_ms": (
+            node.first_received_at_ns["rgb"] - capture_started_at_ns) / 1e6,
+        "consumed_frames": 1,
+        "dropped_frames": None,
+    }
+    timings_ms = {
+        "module_load": (capture_started - PROCESS_STARTED) / 1e6,
+        "rclpy_init": (rclpy_initialized - capture_started) / 1e6,
+        "node_init": (node_initialized - rclpy_initialized) / 1e6,
+        "wait_for_observation": (observation_ready - node_initialized) / 1e6,
+        "decode": (decoded - observation_ready) / 1e6,
+        "persist": (persisted - persist_started) / 1e6,
+    }
 
     result = {
         "ok": True,
@@ -361,6 +414,9 @@ def capture(run_id: str, timeout_s: float) -> dict:
         "clock_offset_ms": (received_at_ns - rgb_stamp_ns) / 1e6,
         "tf_ok": True,
         "depth_valid_ratio": state["depth"]["statistics"]["valid_ratio"],
+        "camera": camera,
+        "fastdds_builtin_transports": os.environ.get("FASTDDS_BUILTIN_TRANSPORTS"),
+        "timings_ms": timings_ms,
     }
 
     event = {
@@ -379,6 +435,7 @@ def capture(run_id: str, timeout_s: float) -> dict:
         os.fsync(file.fileno())
         fcntl.flock(file, fcntl.LOCK_UN)
 
+    timings_ms["total"] = (time.monotonic_ns() - capture_started) / 1e6
     latest_tmp = run_dir / f".latest-{os.getpid()}.json"
     write_json(latest_tmp, result)
     os.replace(latest_tmp, run_dir / "latest.json")

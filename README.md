@@ -33,11 +33,11 @@ There is currently **no trainer, no real-robot episode corpus, no real golden
 set or measured judge bias, and no automatic reset**. The repository implements
 and tests the path that decides whether a separately produced challenger may be
 promoted; it does not yet implement "self-evolution." See
-[`docs/assessment/harness-step-5-evaluation.md`](docs/assessment/harness-step-5-evaluation.md)
-and the live constraints in
+the current architecture in
+[`docs/architecture/overview.md`](docs/architecture/overview.md) and the live constraints in
 [`docs/operations/status.md`](docs/operations/status.md).
 
-Latest local verification: **159 Rust tests passed**, **29 Python tests ran
+Latest local verification: **164 Rust tests passed**, **30 Python tests ran
 (2 hardware-dependent tests skipped)**, Clippy passed with warnings denied, and
 all documentation links resolved. These are offline/software checks only.
 
@@ -130,7 +130,7 @@ boundary. Business decisions stay in Rust.
 | `tactile_adapter.py` | Two-pad pressure capture, serial or user-space CH340/PyUSB transport, median/MAD evidence | Python stdlib and optional PyUSB; called by tactile and grasp-loop commands |
 | `motion_adapter.py`, `servo_adapter.py`, `grip_adapter.py` | Execute exactly one Rust-approved motion, microstep or jaw increment and return a bound JSON report | `astra_arm.py` or ROS gripper topics; called only after Rust safety approval; dry-run by default |
 | `pad_offset_measure.py` | Offline multi-pose pad/tool-offset measurement | NumPy and `bin/xr1 fk`; writes calibration evidence |
-| `xr1_cam.py` | Controls the external Mac recorder over SSH/SCP | `mac/` installation and daemon; used by experiment recording paths |
+| `xr1_cam.py` | Controls the optional external Mac recorder over SSH/SCP | `mac/` installation and daemon; manual use only, never a harness gate |
 | `test_*.py` | Offline adapter contract and refusal tests | Python `unittest`; hardware-dependent paths are injected or skipped |
 
 ### `ros/` — C++ ROS 2 workspace
@@ -232,7 +232,6 @@ directory names and timestamps are part of the evidence identity.
 | Second-level directory | Responsibility | Depends on / used by |
 |---|---|---|
 | `docs/architecture/` | Current hardware map, perception, kinematics, proposals and gripper design | Must agree with code and dated evidence; read before structural changes |
-| `docs/assessment/` | Bilingual step-by-step harness assessment and implementation reports | Summarizes contracts, task-pack split, orchestration split and promotion path |
 | `docs/decisions/` | Numbered ADRs explaining irreversible or safety-relevant choices | New contradictions require a superseding ADR, not silent history edits |
 | `docs/development/` | Build gates and visual-servo implementation guidance | Used by contributors and CI-style local checks |
 | `docs/operations/` | Live status, runbook and measured failure modes | Mandatory before hardware actions; depends on the newest dated observations |
@@ -241,10 +240,16 @@ directory names and timestamps are part of the evidence identity.
 
 | Directory | Responsibility | Depends on / used by |
 |---|---|---|
-| `bin/` | `audit-deps`, `check-doc-links`, ROS-domain-aware `home`, and TF frame health check | Shell, Cargo metadata and sourced ROS environment; used by development/operations checks |
+| `bin/` | `xr1` is the only production robot entry; the other scripts are build, dependency and read-only health checks | Shell, Cargo metadata and the robot's sourced ROS environment |
 | `mac/` | AVFoundation recorder, launch configuration and installer | macOS Swift/AVFoundation and camera permission; controlled remotely by `py/xr1_cam.py` |
 
 ## Run it
+
+Edit and run host-independent checks on the Mac. Production ROS commands and
+the Linux Release build run in `/home/astrabot/workspace` on the robot; from the
+Mac, use `bin/xr1 --host astrabot@192.168.123.102 COMMAND ...`. A GitHub push is
+versioned backup, not deployment: robot code changes only after an explicit
+sync.
 
 Every ROS command needs the domain, or you silently attach to an almost-empty
 graph and draw wrong conclusions:
@@ -265,6 +270,9 @@ bin/xr1 validate-proposal --proposal examples/pick_place_proposal.json
 bin/xr1 plan                       # immutable Release attempt receipt
 bin/xr1 plan --proposal examples/grasp_proposal.json
 bin/xr1 plan --proposal examples/grasp_proposal.json --latest SAVED_LATEST_JSON
+bin/xr1 ready --side right        # MOVES the arm to the measured planning pose
+bin/xr1 motion --attempt ATTEMPT --phase approach       # dry-run
+bin/xr1 motion --attempt ATTEMPT --phase approach --go  # MOVES exactly one phase
 bin/xr1 replay --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
 bin/xr1 fk J1 .. J7               # fingertip-pad FK, for hand-eye work

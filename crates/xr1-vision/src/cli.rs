@@ -48,6 +48,8 @@ where
             let args = args.collect::<Vec<_>>();
             journal.grip(&option(&args, "--side")?, &option(&args, "--state")?)
         }
+        Some("ready") => ready(&runtime, args.collect()),
+        Some("motion") => motion(&runtime, args.collect()),
         Some("end") => {
             let args = args.collect::<Vec<_>>();
             journal.end(&option(&args, "--status")?)
@@ -142,6 +144,8 @@ fn print_help() {
     println!("  begin --purpose TEXT");
     println!("  note --section NAME --text TEXT");
     println!("  grip --side right|left --state open|close");
+    println!("  ready --side right # MOVE the right arm to the measured planning pose");
+    println!("  motion --attempt DIR --phase approach|grasp|return [--go]");
     println!("  end --status SUCCESS|FAILED");
     println!("  status");
     println!("  packs                   # registered task packs able to ground objects");
@@ -360,9 +364,28 @@ fn servo_step(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
     runtime.run_python("servo_adapter.py", &adapter_args)
 }
 
+fn motion(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    validate_command_args(Some("motion"), &args, &["--attempt", "--phase"], &["--go"])?;
+    let attempt = option(&args, "--attempt")?;
+    let phase = option(&args, "--phase")?;
+    let mut adapter_args = vec!["--attempt", attempt.as_str(), "--phase", phase.as_str()];
+    if flag(&args, "--go") {
+        adapter_args.push("--go");
+    }
+    runtime.run_python("motion_adapter.py", &adapter_args)
+}
+
+fn ready(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String> {
+    validate_command_args(Some("ready"), &args, &["--side"], &[])?;
+    let side = option(&args, "--side")?;
+    if side != "right" {
+        return Err("--side must be right; no other ready pose is measured".into());
+    }
+    runtime.run_python("xr1.py", &["ready", side.as_str()])
+}
+
 fn preflight(runtime: &RuntimePaths) -> Result<(), String> {
     runtime.run_python("xr1.py", &["pose"])?;
-    runtime.run_python("xr1_cam.py", &["doctor"])?;
     println!("{{\"ok\":true,\"phase\":\"preflight\"}}");
     Ok(())
 }
@@ -527,4 +550,22 @@ fn servo_propose(runtime: &RuntimePaths, args: Vec<String>) -> Result<(), String
         .map_err(|error| error.to_string())?
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_refuses_an_unmeasured_side_before_starting_python() {
+        let error = ready(
+            &RuntimePaths::discover(),
+            vec!["--side".into(), "left".into()],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "--side must be right; no other ready pose is measured"
+        );
+    }
 }

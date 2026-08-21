@@ -23,13 +23,12 @@ source /opt/ros/jazzy/setup.bash && source /opt/ros/astrabot/setup.bash
 python3 py/xr1.py pose        # joints, grippers, tcp -- and proves /joint_states is live
 python3 py/xr1.py bringup     # after any reboot: the G2 driver is not a systemd unit
 bin/tf-frames                 # 52 frames total, 6 zed_*; exits non-zero otherwise
-python3 py/xr1_cam.py doctor  # the Mac recorder is EXCLUSIVE; state=recording means someone else is live
+```
 
-`bin/xr1 preflight` runs the first and last of those together. There is no
+`bin/xr1 preflight` runs the robot pose check. There is no
 single READY/NOT-READY probe any more --- the script that did that is gone
 ([ADR 0003](../decisions/0003-lost-python-pipeline.md)), and the checks above are
 what it actually looked at.
-```
 
 ## Authoritative constants
 
@@ -59,7 +58,7 @@ table *position* does.
 | Right-hand near field | D405 serial `262422270599` is on a 5000 Mbit/s USB 3.x path. System Python has user-local `pyrealsense2 2.58.3`; one bounded `848x480@15` capture sustained 20 frames at 16.25 Hz, depth-valid ratio 0.868 and 58.1 ms frame/joint delta. The current scene had four yellow candidates, so Rust correctly refused a target signal. Evidence: `data/snapshots/20260821-144602-d405-usb3-validation.json` | 08-21 |
 | Gripper pressure | **UNAVAILABLE.** Both `1a86:7523` CH340 devices enumerate, but neither has a tty node; path/protocol/pad mapping and thresholds remain unverified. Evidence: `data/snapshots/20260821-131324-release-deployment-and-hardware-validation.json` | 08-21 |
 | Wrist cameras | two DECXIN monocular units, distinguished **only** by hub port 4.3 / 4.4. Swapping the cables silently swaps left and right | 08-11 |
-| Recorder | **UNAVAILABLE FROM THE ROBOT.** `preflight` reads robot state, then recorder doctor fails because `/home/astrabot/.ssh/id_xr1rec` is absent. Do not copy a private key into the workspace. The recorder remains exclusive when access is restored. Evidence: `data/snapshots/20260821-131324-release-deployment-and-hardware-validation.json` | 08-21 |
+| Recorder | **OPTIONAL.** The harness records ZED/D405 before, grasp and after images; external Mac recording is manual and never gates `preflight`, `begin` or `end`. | 08-21 |
 
 ## What works
 
@@ -154,7 +153,7 @@ mistaken for coverage.
 | Fewer than 6 `zed_*` TF frames (`bin/tf-frames`) | restart `Astrabot_ZED.service`. `tf2_echo base_link zed_camera_link` will tell you everything is fine |
 | Gripper reads silent, driver process alive | the device node was re-enumerated and the driver holds a stale fd. `ls -l /dev/tty*` newer than `ps -o lstart=` proves it. Only `kill -9` works; `bringup` cannot fix it and its `STILL SILENT` message misleads |
 | Gripper command "ignored" right after start | DDS discovery had not completed, so it was dropped. `xr1.py grip()` waits; a log line `before=None` is the fingerprint |
-| Arm below the table, every plan refused | `py/xr1.py home` --- but note `home` itself does **not** pass collision checks, and the right arm at zero is 3.0 mm from the torso |
+| Right arm below the planner floor gate, every plan refused | With human permission, run `bin/xr1 ready --side right`. It moves to the measured planning pose; `home` puts the pad at z=0.3527 m and cannot clear the 0.785 m planner floor gate |
 | rclpy script will not die | `timeout N python3` is **not** a bound (one ignored it for 2 h 25 m). Only `kill -9`. Put the deadline inside the loop |
 
 More failure modes, with the reasoning that identified each one:

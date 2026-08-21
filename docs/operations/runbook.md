@@ -13,6 +13,11 @@ bin/tf-frames                 # 52 total, 6 zed_*; anything else is a known fail
 python3 py/xr1.py bringup     # after a reboot: the G2 gripper driver is not a systemd unit
 ```
 
+When the right arm is below the planner floor gate, `bin/xr1 ready --side right`
+moves it to the measured planning-capable pose. This is a real hardware action; obtain
+permission and check the shared command channel first. `home` is not a planning
+pose.
+
 Head pose is a precondition, not a preference: `pitch = +40°` (reads 39) and
 `yaw = 0`. At any other pitch the ZED and the arm's workspace do not overlap; at
 40° of yaw you get a half-metre localisation error.
@@ -159,7 +164,7 @@ code path without anyone noticing.
 "The gripper closed" proves nothing, and reading the position at the instant the
 trigger is pulled records the home pose (839, fully open) as a success.
 
-## 3. Recording (external camera on the Mac)
+## 3. Optional manual recording (external camera on the Mac)
 
 ```bash
 python3 py/xr1_cam.py doctor
@@ -177,7 +182,8 @@ else is live. When ordering evidence, trust `rec_confirm_ms`, not filenames.
 
 ⚠️ The last confirmed working recording was before 2026-08-11 and its clip is
 gone with `_attic_20260811/`. Treat "the recording link works" as a *historical*
-claim until you have run it once with `--require-video`.
+claim until a manual `doctor`/`start`/`stop`/`pull` cycle succeeds. The recorder
+never gates `preflight`, `begin` or `end`.
 
 ## 4. VR teleoperation
 

@@ -43,6 +43,9 @@ pub fn validate_command_args(
     while index < args.len() {
         let argument = args[index].as_str();
         if flags.contains(&argument) {
+            if args[..index].iter().any(|value| value == argument) {
+                return Err(format!("{argument} may only be supplied once"));
+            }
             index += 1;
         } else if options.contains(&argument) {
             let Some(value) = args.get(index + 1) else {
@@ -118,8 +121,9 @@ mod tests {
 
     #[test]
     fn repeated_option_is_rejected() {
-        let args = args(&["--proposal", "a.json", "--proposal", "b.json"]);
-        assert!(optional_option(&args, "--proposal").is_err());
+        let repeated = args(&["--proposal", "a.json", "--proposal", "b.json"]);
+        assert!(optional_option(&repeated, "--proposal").is_err());
+        assert!(validate_command_args(None, &args(&["--go", "--go"]), &[], &["--go"]).is_err());
     }
 
     #[test]

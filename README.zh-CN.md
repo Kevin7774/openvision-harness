@@ -28,10 +28,10 @@ Harness 已具备一条经过软件测试的完整路径：从硬件无关契约
 当前**没有训练器、没有真实机器人 Episode 语料、没有真实黄金集或实测 Judge 偏差，也
 没有自动复位**。仓库实现并测试的是“判断外部产生的挑战策略能否晋升”的路径，不是
 “机器人已经自我进化”。详见
-[`docs/assessment/harness-step-5-evaluation.zh.md`](docs/assessment/harness-step-5-evaluation.zh.md)
+当前架构 [`docs/architecture/overview.md`](docs/architecture/overview.md)
 和真机约束 [`docs/operations/status.md`](docs/operations/status.md)。
 
-最近一次本地验证结果：**159 个 Rust 测试通过**，**运行 29 个 Python 测试（其中 2 个
+最近一次本地验证结果：**164 个 Rust 测试通过**，**运行 30 个 Python 测试（其中 2 个
 硬件相关测试跳过）**，Clippy 在禁止警告模式下通过，所有文档链接有效。这些仅是离线/
 软件检查。
 
@@ -120,7 +120,7 @@ profiles/*.json / 标定数据                 task-packs/yellow-block-pick-plac
 | `tactile_adapter.py` | 双压力贴片采集，支持串口或用户态 CH340/PyUSB，输出 Median/MAD 证据 | Python 标准库与可选 PyUSB；由触觉和抓取循环调用 |
 | `motion_adapter.py`、`servo_adapter.py`、`grip_adapter.py` | 只执行一次 Rust 批准的动作、微步或夹爪增量，并返回绑定后的 JSON 报告 | `astra_arm.py` 或 ROS 夹爪 Topic；必须先通过 Rust 安全 Gate，默认 Dry-run |
 | `pad_offset_measure.py` | 离线多姿态夹爪贴片/工具偏移测量 | NumPy 和 `bin/xr1 fk`；生成标定证据 |
-| `xr1_cam.py` | 通过 SSH/SCP 控制 Mac 外置相机录像器 | 依赖 `mac/` 安装与 Daemon；实验录像路径调用 |
+| `xr1_cam.py` | 通过 SSH/SCP 控制可选的 Mac 外置相机录像器 | 依赖 `mac/` 安装与 Daemon；仅手动使用，不作为 harness 门禁 |
 | `test_*.py` | 离线适配器契约与拒绝行为测试 | Python `unittest`；硬件路径通过注入替代或跳过 |
 
 ### `ros/` — C++ ROS 2 工作区
@@ -219,7 +219,6 @@ ROS 包内部目录：
 | 二级目录 | 职责 | 依赖/使用者 |
 |---|---|---|
 | `docs/architecture/` | 当前硬件映射、感知、运动学、Proposal 和夹爪设计 | 必须与代码和带日期证据一致；结构调整前阅读 |
-| `docs/assessment/` | 中英双语的 Harness 分步评估与实现报告 | 汇总契约、任务包拆分、编排拆分和策略晋升路径 |
 | `docs/decisions/` | 解释不可逆或安全相关选择的编号 ADR | 出现矛盾时用后续 ADR 取代，禁止静默改写历史 |
 | `docs/development/` | 构建 Gate 和视觉伺服实现指南 | 供开发者和本地 CI 式检查使用 |
 | `docs/operations/` | 真机状态、Runbook 和实测故障模式 | 硬件动作前必须阅读；依赖最新带日期观测 |
@@ -228,10 +227,15 @@ ROS 包内部目录：
 
 | 目录 | 职责 | 依赖/使用者 |
 |---|---|---|
-| `bin/` | 唯一生产入口 `xr1`、`audit-deps`、`check-doc-links`、自动设置 ROS Domain 的 `home`、TF Frame 健康检查 | Shell、Cargo 元数据和已 Source 的 ROS 环境；开发/运维检查调用 |
+| `bin/` | `xr1` 是唯一生产真机入口；其余脚本只负责构建、依赖和只读健康检查 | Shell、Cargo 元数据和机器人上已 Source 的 ROS 环境 |
 | `mac/` | AVFoundation 录像器、Launch 配置和安装脚本 | macOS Swift/AVFoundation 与相机权限；由 `py/xr1_cam.py` 远程控制 |
 
 ## 运行方式
+
+代码编辑和硬件无关检查可在 Mac 本地完成；生产 ROS 命令与 Linux Release 构建都在机器人
+`/home/astrabot/workspace` 中运行。从 Mac 发起时使用
+`bin/xr1 --host astrabot@192.168.123.102 COMMAND ...`。推送 GitHub 只是版本保存，
+不会自动部署；机器人代码只有显式同步后才会更新。
 
 所有 ROS 命令都必须使用正确 Domain，否则会静默接入几乎为空的 ROS 图，进而得出错误结论：
 
@@ -249,6 +253,9 @@ bin/xr1 observe
 bin/xr1 bundle
 bin/xr1 validate-proposal --proposal examples/pick_place_proposal.json
 bin/xr1 plan --proposal examples/grasp_proposal.json
+bin/xr1 ready --side right        # 会移动手臂到实测规划起始位
+bin/xr1 motion --attempt ATTEMPT --phase approach       # Dry-run
+bin/xr1 motion --attempt ATTEMPT --phase approach --go  # 只执行一个动作阶段
 bin/xr1 replay --proposal examples/pick_place_proposal.json \
   --events examples/task_events.jsonl
 bin/xr1 sensor-status

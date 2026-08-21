@@ -85,6 +85,23 @@ class MotionAdapterTest(unittest.TestCase):
         )
         self.assertEqual(age, 2.5)
 
+    def test_return_reverses_only_the_validated_grasp_to_approach_leg(self):
+        plan = {"current_joints_rad": {"right_arm_1_joint": -1.0}}
+        selected = candidate(1, 1.0)
+        selected["approach_ik"] = {
+            **selected["approach_ik"],
+            "joints_rad": {"right_arm_1_joint": -1.2},
+        }
+        selected["grasp_ik"] = {
+            **selected["grasp_ik"],
+            "joints_rad": {"right_arm_1_joint": -1.4},
+        }
+
+        solution = motion_adapter.phase_solution(selected, "return")
+        start, target = motion_adapter.phase_joints(plan, selected, "return", solution)
+
+        self.assertEqual(start, selected["grasp_ik"]["joints_rad"])
+        self.assertEqual(target, selected["approach_ik"]["joints_rad"])
 
 if __name__ == "__main__":
     unittest.main()

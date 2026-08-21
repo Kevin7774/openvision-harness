@@ -46,17 +46,17 @@ CLI
     python3 xr1.py grip  left close        # or: open / 0.0-1.0
     python3 xr1.py wave  right --rounds 2  # raise + wave + gripper + lower
     python3 xr1.py demo  --rounds 2        # both arms alternating
-    python3 xr1.py home                    # all arm joints to 0
+    python3 xr1.py home                    # all joints to 0; NOT a planning pose
+    python3 xr1.py ready right             # measured planning-capable arm pose
     python3 xr1.py snap  --all             # capture every camera
 
 Block localisation is not here any more: it is `bin/xr1 plan` (Rust). The old
 `status` and `blocks` subcommands shelled out to xr1_verify.py / zed_perception.py
 / blocks_to_base.py, none of which exist -- see docs/decisions/0003.
 
-Film an action with the external camera on the Mac via the Rust journal, which
-writes the experiment record and drives xr1_cam.py for the clip:
-    bin/xr1 begin --purpose "..." ; ... ; bin/xr1 end --status SUCCESS
-The old --record flag on motion commands is a dead end -- see _step().
+The Rust journal writes experiment metadata and ZED/D405 image slots; it does
+not control the optional external Mac recorder. Use xr1_cam.py manually when a
+continuous clip is needed. The old --record flag is a dead end -- see _step().
     python3 xr1.py rec setup               # one-time: build/launch the Mac recorder
     python3 xr1.py rec new --label 抓积木   # open a run; later actions join it
     python3 xr1.py wave right --record     # films it, logs it, keeps the clip
@@ -103,6 +103,22 @@ RAISE_JOINT = {"left": ("left_arm_2_joint", +1),
 # arm_4 flexes the elbow -- the wave joint. left_arm_4's lower limit is only
 # -0.139 rad, so a symmetric +-0.40 wave is CLIPPED on the left. Not a bug.
 WAVE_JOINT = {"left": "left_arm_4_joint", "right": "right_arm_4_joint"}
+
+# Planning-capable ready pose. The IK gate in kinematics/ik.rs scores a
+# candidate on motion_envelope(current -> solution), so a start pose whose pad
+# midpoint sits below PLANNING_MIN_TIP_Z_M = 0.785 m makes *every* candidate
+# fail floor_clear no matter where the object is. Joints=0 puts the pad at
+# z = 0.3527 m (measured: bin/xr1 fk 0 0 0 0 0 0 0, 2026-08-21), well below
+# the planner floor -- that is the "home then plan" deadlock, and the gate is
+# right to refuse it.
+# These two joints lift the hand laterally to pad z = 0.954 m (measured:
+# bin/xr1 fk 0 -1.1 0 -0.4 0 0 0, 2026-08-21) while pad x stays in
+# [-0.051, +0.111] m, never entering the table half-space TABLE_X_MIN = 0.2 m,
+# so the lift itself cannot touch the table. Nothing here widens a gate: the
+# move goes through astra_arm's rate limit and URDF clamp like any other.
+READY_POSE = {
+    "right": {"right_arm_2_joint": -1.10, "right_arm_4_joint": -0.40},
+}
 
 # Only two UVC cameras exist. The right wrist's mono camera was REMOVED to fit
 # the DaBai DW2 depth camera and, per the operator (2026-08-11), will not come
@@ -543,24 +559,24 @@ def _step(a, action, params=None, robot=None):
     """Wrap one action in an experiment Step when --record was given.
 
     --record is currently a dead end: xr1_experiment.py went with the rest of
-    the old Python loop (see docs/decisions/0002-lost-python-loop.md) and is not
+    the old Python loop (see docs/decisions/0003-lost-python-pipeline.md) and is not
     recoverable. The journal capability itself survived -- it was migrated into
-    the Rust CLI, which drives xr1_cam.py for the video. Rather than raise an
-    ImportError three frames deep in a motion command, say so here.
+    the Rust CLI, which writes the experiment record but does not drive the
+    optional Mac recorder. Rather than raise an ImportError three frames deep
+    in a motion command, say so here.
     """
     if not getattr(a, "record", False):
         return _NoStep()
     raise SystemExit(
         "--record is not available: xr1_experiment.py no longer exists.\n"
-        "Use the Rust journal instead, which records the same clip:\n"
+        "Use the Rust journal for metadata and image evidence:\n"
         "  bin/xr1 begin --purpose TEXT ; bin/xr1 note ... ; "
         "bin/xr1 end --status SUCCESS|FAILED")
 
 
 def _add_record_flags(p):
     p.add_argument("--record", action="store_true",
-                   help="film this action with the Mac's external camera and "
-                        "write an experiment record (starts recording first)")
+                   help="legacy unavailable flag; exits before motion")
     p.add_argument("--label", default="",
                    help="label for the run this action belongs to")
 
@@ -655,6 +671,15 @@ def cmd_home(a):
     with XR1() as r:
         with _step(a, "home", {"which": a.which}, robot=r):
             r.home(a.which)
+
+
+def cmd_ready(a):
+    """Park an arm in the planning-capable pose. See READY_POSE."""
+    with XR1() as r:
+        with _step(a, "ready", {"which": a.which}, robot=r) as st:
+            r.move(READY_POSE[a.which], speed=a.speed)
+            st.mark(f"{a.which} ready")
+            print(f"  {a.which} tcp z {r.tcp_z(a.which)}")
 
 
 def cmd_demo(a):
@@ -763,6 +788,15 @@ def main():
                    choices=["left", "right", "both"])
     _add_record_flags(p)
     p.set_defaults(fn=cmd_home)
+
+    p = sub.add_parser("ready", help="arm to the planning-capable ready pose "
+                                     "(pad z 0.954 m, clears the 0.785 m "
+                                     "planner floor gate)")
+    p.add_argument("which", nargs="?", default="right",
+                   choices=["right"])
+    p.add_argument("--speed", type=float, default=0.5)
+    _add_record_flags(p)
+    p.set_defaults(fn=cmd_ready)
 
     p = sub.add_parser("demo", help="both arms alternating, timed")
     p.add_argument("--rounds", type=int, default=2)

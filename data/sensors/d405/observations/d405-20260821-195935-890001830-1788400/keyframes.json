@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "frame_id": "d405-20260821-195935-890001830-1788400",
+  "selection": "first_middle_last",
+  "safe_for_motion_authorization": false,
+  "frames": [
+    {
+      "label": "start",
+      "capture_index": 0,
+      "received_at_ns": 1787313574725222229,
+      "frame_number": 0,
+      "device_timestamp_ms": 1787313574553.9104,
+      "rgb_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-195935-890001830-1788400/keyframe-start-rgb.png",
+      "depth_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-195935-890001830-1788400/keyframe-start-depth.npy",
+      "depth_unit": "m"
+    },
+    {
+      "label": "middle",
+      "capture_index": 10,
+      "received_at_ns": 1787313575286614784,
+      "frame_number": 11,
+      "device_timestamp_ms": 1787313575290.7021,
+      "rgb_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-195935-890001830-1788400/keyframe-middle-rgb.png",
+      "depth_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-195935-890001830-1788400/keyframe-middle-depth.npy",
+      "depth_unit": "m"
+    },
+    {
+      "label": "end",
+      "capture_index": 19,
+      "received_at_ns": 1787313575890001830,
+      "frame_number": 20,
+      "device_timestamp_ms": 1787313575885.0593,
+      "rgb_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-195935-890001830-1788400/rgb.png",
+      "depth_path": "/home/astrabot/workspace/data/sensors/d405/observations/d405-20260821-195935-890001830-1788400/depth.npy",
+      "depth_unit": "m"
+    }
+  ]
+}
