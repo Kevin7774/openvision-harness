@@ -389,7 +389,8 @@ fn safe_id(value: &str) -> String {
 }
 
 fn sha256_json<T: Serialize>(value: &T) -> Result<String, String> {
-    sha256_bytes(&serde_json::to_vec(value).map_err(|error| error.to_string())?)
+    let canonical = serde_json::to_value(value).map_err(|error| error.to_string())?;
+    sha256_bytes(&serde_json::to_vec(&canonical).map_err(|error| error.to_string())?)
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
@@ -460,6 +461,7 @@ fn elapsed_ms(started: Instant) -> f64 {
 mod tests {
     use super::*;
     use std::cell::Cell;
+    use std::collections::HashMap;
 
     fn fixture(name: &str) -> (PathBuf, PathBuf, PathBuf) {
         let root =
@@ -574,6 +576,22 @@ mod tests {
         .is_err());
         assert_eq!(calls.get(), 1);
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn json_hash_ignores_map_insertion_order() {
+        let mut forward = HashMap::new();
+        let mut reverse = HashMap::new();
+        for value in 0..32 {
+            forward.insert(format!("joint_{value}"), value);
+        }
+        for value in (0..32).rev() {
+            reverse.insert(format!("joint_{value}"), value);
+        }
+        assert_eq!(
+            sha256_json(&forward).unwrap(),
+            sha256_json(&reverse).unwrap()
+        );
     }
 
     #[test]
