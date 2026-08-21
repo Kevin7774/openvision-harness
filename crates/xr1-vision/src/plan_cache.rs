@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-const CACHE_SCHEMA_VERSION: u32 = 1;
+const CACHE_SCHEMA_VERSION: u32 = 2;
 const SAFETY_POLICY_VERSION: &str = "production-plan-policy-v1";
 const REQUIRED_FILES: [&str; 5] = [
     "snapshot.json",
@@ -162,7 +162,9 @@ where
             Some(error),
         ),
     };
-    let plan_hash = sha256_json(&plan)?;
+    let plan_path = incomplete.join("plan.json");
+    create_new_json(&plan_path, &plan)?;
+    let plan_hash = sha256_file(&plan_path)?;
     let diagnostics = match &planner_error {
         None => json!({
             "ok": true,
@@ -182,7 +184,6 @@ where
             })
         }
     };
-    create_new_json(&incomplete.join("plan.json"), &plan)?;
     create_new_json(&incomplete.join("diagnostics.json"), &diagnostics)?;
     create_new_json(
         &incomplete.join("timings.json"),
@@ -245,7 +246,7 @@ fn load_existing(
         ));
     }
     let proposal_hash = sha256_json(&proposal)?;
-    let plan_hash = sha256_json(&plan)?;
+    let plan_hash = sha256_file(&attempt.join("plan.json"))?;
     if snapshot.get("proposal_sha256").and_then(Value::as_str) != Some(proposal_hash.as_str())
         || diagnostics.get("plan_sha256").and_then(Value::as_str) != Some(plan_hash.as_str())
     {
@@ -549,6 +550,18 @@ mod tests {
         assert!(!first.cache_hit);
         assert!(second.cache_hit);
         assert_eq!(first.plan_path, second.plan_path);
+
+        let plan_bytes = fs::read(&first.plan_path).unwrap();
+        let mut changed_plan = plan_bytes.clone();
+        changed_plan.push(b' ');
+        fs::write(&first.plan_path, changed_plan).unwrap();
+        assert!(load_or_plan(inputs(&root, &latest, &urdf, &proposal), || {
+            calls.set(calls.get() + 1);
+            Ok(json!({ "ok": true }))
+        })
+        .is_err());
+        assert_eq!(calls.get(), 1);
+        fs::write(&first.plan_path, plan_bytes).unwrap();
 
         let attempt = fs::read_dir(&root)
             .unwrap()
